@@ -18,25 +18,5 @@ namespace Test_3TierAPI.Models.API
         public int? RateLimitMax { get; set; } // 최대 요청 횟수
         public string? CacheStatus { get; set; } // 캐시 상태 ("HIT" or "MISS")
         public string? DataSource { get; set; } // 데이터 소스 (DB, Cache, etc.)
-
-        // TODO
-        // - 추후에는 Error용과 Success용으로 나누는 것이 좋을 듯
-        public static MetaDTO GenerateDefaultMetaDTO(HttpContext context, Stopwatch stopwatch, RequestDTO<object> requestDto)
-        {
-            stopwatch.Stop(); // 요청 처리 종료 시점 측정
-
-            bool bIsValidRequestDTO = requestDto != null;
-
-            return new MetaDTO
-            {
-                ExecutionTime = $"{stopwatch.ElapsedMilliseconds}ms", // 실행 시간 기록
-                ServerTimeStamp = DateTime.UtcNow.ToString("o"), // ISO 8601 형식의 UTC 타임스탬프
-                RequestId = bIsValidRequestDTO ? requestDto.RequestId : "RequestDTO 손실", // RequestDTO에서 가져옴 (Header X)
-                TraceId = bIsValidRequestDTO ? requestDto.TraceId  : "RequestDTO 손실", // RequestDTO에서 가져옴
-                CacheStatus = "", // 기본적으로 캐시 미사용 (컨트롤러에서 할당)
-                DataSource = "" // 기본 데이터 소스 설정 (컨트롤러에서 할당)
-            };
-        }
     }
-
 }

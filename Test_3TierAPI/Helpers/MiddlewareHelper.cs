@@ -5,46 +5,7 @@ namespace Test_3TierAPI.Helpers
 {
     public static class MiddlewareHelper
     {
-        /// <summary>
-        /// 요청 DTO를 검증하여 유효성 검사 오류 목록을 반환
-        /// </summary>
-        public static List<string> ValidateRequest(RequestDTO<object> request, bool isDataRequired)
-        {
-            var errors = new List<string>();
-
-            // 요청 객체가 null이면 에러 반환
-            if (request == null)
-            {
-                errors.Add("Request body cannot be null");
-                return errors;
-            }
-
-            // 필수 필드 검증 (Requester, RequestId, RequestTimestamp)
-            if (string.IsNullOrWhiteSpace(request.Requester))
-            {
-                errors.Add("Requester is required");
-            }
-            if (string.IsNullOrWhiteSpace(request.RequestId))
-            {
-                errors.Add("RequestId is required");
-            }
-            if (request.RequestTimestamp == default || request.RequestTimestamp > DateTime.UtcNow.AddMinutes(5))
-            {
-                errors.Add("RequestTimestamp must be a valid past or present timestamp.");
-            }
-            if (!string.IsNullOrWhiteSpace(request.TraceId) && !Guid.TryParse(request.TraceId, out _))
-            {
-                errors.Add("TraceId must be a valid GUID.");
-            }
-
-            // RequireData 어노테이션이 있고, Data가 필수인데 없으면 오류 추가
-            if (isDataRequired && request.Data == null)
-            {
-                errors.Add("Data is required for this endpoint.");
-            }
-
-            return errors;
-        }
+        
 
         /// <summary>
         /// 에러 응답을 JSON 형식으로 반환하는 메서드

@@ -23,13 +23,13 @@ namespace Test_3TierAPI.Middlewares
         // Middleware의 핵심 기능을 수행하는 Invoke 메서드
         public async Task Invoke(HttpContext context)
         {
-            // 요청 실행 시간 측정 시작
-            Stopwatch? stopwatch = Stopwatch.StartNew();
+            // exception middleware에서 생성한 items들 가져오기
+            Stopwatch? stopwatch = context.Items.ContainsKey("Stopwatch") ? context.Items["Stopwatch"] as Stopwatch : new Stopwatch();
+            bool bIsDev = context.Items.ContainsKey("bIsDev") && (bool)context.Items["bIsDev"];
+            MetaDTO? meta = context.Items.ContainsKey("MetaDTO") ? context.Items["MetaDTO"] as MetaDTO : new MetaDTO();
+
             RequestDTO<object>? requestDto = null;
             string? body = null;
-
-            // RateLimitMiddleware 에서 생성하고 context의 Items에 저장한 MetaDTO 가져오기
-            MetaDTO? meta = context.Items.ContainsKey("MetaDTO") ? (MetaDTO)context.Items["MetaDTO"] : new MetaDTO();
 
             try
             {
@@ -47,14 +47,17 @@ namespace Test_3TierAPI.Middlewares
                 // 요청 본문이 비어 있는 경우 에러 응답 반환
                 if (string.IsNullOrWhiteSpace(body))
                 {
-                    await MiddlewareHelper.WriteErrorResponse(context, "Request body is empty", stopwatch, null);
+                    _logger.LogWarning("Request body is empty");
+                    meta.StatusCode = StatusCodes.Status400BadRequest;
+                    MiddlewareHelper.StoreErrorResponse(MiddlewareHelper.GetErrorResponse<object>(context, "Request body is empty", bIsDev, stopwatch, meta), context);
                     return;
                 }
             }
             catch (Exception ex)
             { 
                 _logger.LogError($"Error reading request body: {ex.Message}", ex);
-                await MiddlewareHelper.WriteErrorResponse(context, "Error reading request body", stopwatch);
+                meta.StatusCode = StatusCodes.Status500InternalServerError;
+                MiddlewareHelper.StoreErrorResponse(MiddlewareHelper.GetErrorResponse<object>(context, "Error reading request body", bIsDev, stopwatch, meta), context);
                 return;
             }
 
@@ -66,7 +69,8 @@ namespace Test_3TierAPI.Middlewares
             catch (JsonException ex)
             {
                 _logger.LogError($"JSON deserialization error: {ex.Message}", ex);
-                await MiddlewareHelper.WriteErrorResponse(context, "Invalid request format (JSON parsing error).", stopwatch);
+                meta.StatusCode = StatusCodes.Status500InternalServerError;
+                MiddlewareHelper.StoreErrorResponse(MiddlewareHelper.GetErrorResponse<object>(context, "Invalid request format (JSON parsing error).", bIsDev, stopwatch, meta), context);
                 return;
             }
 
@@ -96,10 +100,12 @@ namespace Test_3TierAPI.Middlewares
                             bool isDataRequired = methodRequireDataAttr?.IsRequired ?? classRequireDataAttr?.IsRequired ?? false;
 
                             // 요청 DTO의 유효성을 검사하고, 실패한 경우 에러 응답 반환
-                            List<string> validationResults = MiddlewareHelper.ValidateRequest(requestDto, isDataRequired);
+                            List<string> validationResults = ValidateRequest(requestDto, isDataRequired);
                             if (validationResults.Count > 0)
                             {
-                                await MiddlewareHelper.WriteErrorResponse(context, "Invalid request data.", stopwatch, requestDto, validationResults);
+                                _logger.LogWarning("Invalid request data: {0}", string.Join(", ", validationResults));
+                                meta.StatusCode = StatusCodes.Status400BadRequest;
+                                MiddlewareHelper.StoreErrorResponse(MiddlewareHelper.GetErrorResponse<object>(context, "Invalid request data.", bIsDev, stopwatch, meta, validationResults), context);
                                 return;
                             }
                         }
@@ -109,19 +115,53 @@ namespace Test_3TierAPI.Middlewares
                 {
                     // 예외 발생 시 오류 메시지를 로깅하고 400 Bad Request 응답 반환
                     _logger.LogError($"Request validation failed: {ex.Message}");
-                    await MiddlewareHelper.WriteErrorResponse(context, "Invalid request format.", stopwatch, requestDto);
+                    meta.StatusCode = StatusCodes.Status400BadRequest;
+                    MiddlewareHelper.StoreErrorResponse(MiddlewareHelper.GetErrorResponse<object>(context, "Invalid request format.", bIsDev, stopwatch, meta), context);
                     return;
                 }
             }
 
             // 기존 MetaDTO 사용 및 필요한 정보만 업데이트
-            meta.RequestId = requestDto.RequestId;
-            meta.TraceId = requestDto.TraceId;
-            
+            meta.Requester = requestDto.Requester;
+            meta.SWRequestTimestamp = requestDto.RequestTimestamp;
+
+
             // 다시 context.Items에 저장
             context.Items["MetaDTO"] = meta;
 
             await _next(context);
+        }
+
+        /// <summary>
+        /// 요청 DTO를 검증하여 유효성 검사 오류 목록을 반환
+        /// </summary>
+        public List<string> ValidateRequest(RequestDTO<object> request, bool isDataRequired)
+        {
+            var errors = new List<string>();
+
+            // 요청 객체가 null이면 에러 반환
+            if (request == null)
+            {
+                errors.Add("Request body cannot be null");
+                return errors;
+            }
+
+            // 필수 필드 검증 (Requester, RequestId, RequestTimestamp)
+            if (string.IsNullOrWhiteSpace(request.Requester))
+            {
+                errors.Add("Requester is required");
+            }
+            if (request.RequestTimestamp == default || request.RequestTimestamp > DateTime.UtcNow.AddMinutes(5))
+            {
+                errors.Add("RequestTimestamp must be a valid past or present timestamp.");
+            }
+            // RequireData 어노테이션이 있고, Data가 필수인데 없으면 오류 추가
+            if (isDataRequired && request.Data == null)
+            {
+                errors.Add("Data is required for this endpoint.");
+            }
+
+            return errors;
         }
     }
 }

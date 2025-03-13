@@ -23,7 +23,9 @@ namespace Test_3TierAPI.Middlewares
 
         public async Task Invoke(HttpContext context)
         {
-            var stopwatch = Stopwatch.StartNew(); // 요청 실행 시간 측정 시작
+            Stopwatch? stopwatch = context.Items.ContainsKey("Stopwatch") ? context.Items["Stopwatch"] as Stopwatch : new Stopwatch();
+            bool bIsDev = context.Items.ContainsKey("bIsDev") ? (bool)context.Items["bIsDev"] : false;
+            MetaDTO? metaDTO = context.Items.ContainsKey("MetaDTO") ? context.Items["MetaDTO"] as MetaDTO : new MetaDTO();
 
             try
             {
@@ -33,7 +35,7 @@ namespace Test_3TierAPI.Middlewares
                 if (clientId == null)
                 {
                     _logger.LogWarning("Client IP address not found");
-                    await MiddlewareHelper.WriteErrorResponse(context, "Client IP address not found", stopwatch);
+                    MiddlewareHelper.StoreErrorResponse(MiddlewareHelper.GetErrorResponse<object>(context, "Client IP address not found", bIsDev, stopwatch, metaDTO), context);
                     return;
                 }
 
@@ -51,8 +53,10 @@ namespace Test_3TierAPI.Middlewares
                 if (rateLimitInfo.Remaining <= 0)
                 {
                     _logger.LogWarning($"Rate limit exceeded for client {clientId}");
+                    
+                    metaDTO.StatusCode = StatusCodes.Status429TooManyRequests;
 
-                    await MiddlewareHelper.WriteErrorResponse(context, "Too Many Requests. Please try again later.", stopwatch);
+                    MiddlewareHelper.StoreErrorResponse(MiddlewareHelper.GetErrorResponse<object>(context, "Too Many Requests. Please try again later.", bIsDev, stopwatch, metaDTO), context);
                     return;
                 }
 
@@ -60,18 +64,9 @@ namespace Test_3TierAPI.Middlewares
                 rateLimitInfo.Remaining--; // 요청 횟수 감소
                 _cache.Set(cacheKey, rateLimitInfo, TimeSpan.FromSeconds(RateLimitWindowSeconds)); // 캐시 업데이트
 
-                // MetaDTO를 context.Items에 저장
-                if (!context.Items.ContainsKey("MetaDTO"))
-                {
-                    context.Items["MetaDTO"] = new MetaDTO();
-                }
-
                 // MetaDTO에 RateLimit 정보 저장
-                MetaDTO? metaDto = context.Items["MetaDTO"] as MetaDTO;
-                metaDto.RateLimitRemaining = rateLimitInfo.Remaining;
-                metaDto.RateLimitMax = RateLimitMax;
-                metaDto.ExecutionTime = $"{stopwatch.ElapsedMilliseconds}ms";
-                metaDto.ServerTimeStamp = DateTime.UtcNow.ToString("o");
+                metaDTO.RateLimitRemaining = rateLimitInfo.Remaining;
+                metaDTO.RateLimitMax = RateLimitMax;
 
                 await _next(context); // 다음 미들웨어로 요청 전달
             }
@@ -80,7 +75,9 @@ namespace Test_3TierAPI.Middlewares
                 _logger.LogError($"Unexpected error in RateLimitMiddleware: {ex.Message}", ex);
 
                 // 500 Internal Server Error 응답 반환
-                await MiddlewareHelper.WriteErrorResponse(context, "An unexpected error occurred in rate limiting.", stopwatch);
+                metaDTO.StatusCode = StatusCodes.Status500InternalServerError;
+                MiddlewareHelper.StoreErrorResponse(MiddlewareHelper.GetErrorResponse<object>(context, "An unexpected error occurred in rate limiting.", bIsDev, stopwatch, metaDTO), context);
+                return;
             }
         }
 
