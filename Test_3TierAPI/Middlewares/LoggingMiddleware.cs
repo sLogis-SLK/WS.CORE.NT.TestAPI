@@ -9,46 +9,44 @@ namespace Test_3TierAPI.Middlewares
     {
         private readonly RequestDelegate _next;
         private readonly ILogger<LoggingMiddleware> _logger;
-        private MetaDTO? _meta;
-        private Stopwatch? _stopwatch;
-        private HttpContext _context;
 
         public LoggingMiddleware(RequestDelegate next, ILogger<LoggingMiddleware> logger)
         {
             _next = next;
             _logger = logger;
-            _meta = null;
-            _stopwatch = null;
         }
 
         public async Task Invoke(HttpContext context)
         {
-            await _next(context); // 다음 미들웨어 호출
+            await _next(context); // 다음 미들웨어 실행
 
-            _meta = context.Items.ContainsKey("MetaDTO") ? context.Items["MetaDTO"] as MetaDTO : null;
-            _stopwatch = context.Items.ContainsKey("Stopwatch") ? context.Items["Stopwatch"] as Stopwatch : null;
-            _context = context;
-
-            if (_meta != null)
+            // ✅ ResponseDTO 가져오기
+            context.Items.TryGetValue("ResponseDTO", out var responseObj);
+            if (responseObj is ResponseDTO<object> responseDto)
             {
+                // ✅ 로그 데이터 생성
                 string logData = JsonConvert.SerializeObject(new
                 {
-                    Timestamp = _meta.ServerTimeStamp,
-                    JobUUID = _meta.JobUUID,
-                    RequestURL = _meta.RequestURL,
-                    RequestIP = _meta.RequestIP,
-                    ExecutionTime = _meta.ExecutionTime,
-                    StatusCode = _meta.StatusCode,
-                    meta = _meta
+                    Timestamp = responseDto.Meta?.ServerTimeStamp,
+                    JobUUID = responseDto.JobUUID,
+                    RequestURL = responseDto.Meta?.RequestURL,
+                    RequestIP = responseDto.Meta?.RequestIP,
+                    ExecutionTime = responseDto.Meta?.ExecutionTime,
+                    StatusCode = responseDto.Meta?.StatusCode,
+                    Response = responseDto
                 });
 
-                _logger.LogInformation($"[API Log] : {logData}");   
+                _logger.LogInformation($"[API Log] : {logData}");
 
-                await SaveLogToFile(logData);   // 로그 파일 텍스트 파일에 저장
+                // ✅ 로그를 파일에 저장
+                await SaveLogToFile(logData);
             }
         }
 
-        public async Task SaveLogToFile(string logData)
+        /// <summary>
+        /// 로그 데이터를 파일에 저장하는 함수 (BufferedStream을 활용하여 성능 최적화)
+        /// </summary>
+        private async Task SaveLogToFile(string logData)
         {
             try
             {
@@ -60,16 +58,15 @@ namespace Test_3TierAPI.Middlewares
                 {
                     Directory.CreateDirectory(logDirectory);
                 }
-                
-                await File.AppendAllTextAsync(logFilePath, logData + Environment.NewLine);
+
+                // ✅ BufferedStream을 활용하여 파일 저장 성능 향상
+                await using var fileStream = new FileStream(logFilePath, FileMode.Append, FileAccess.Write, FileShare.Read, 4096, useAsync: true);
+                await using var writer = new StreamWriter(new BufferedStream(fileStream));
+                await writer.WriteLineAsync(logData);
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Error saving log to file: {ex.Message}", ex);
-                
-                _meta.StatusCode = StatusCodes.Status500InternalServerError;
-
-                MiddlewareHelper.StoreErrorResponse(MiddlewareHelper.GetErrorResponse<object>(_context, "Error saving log to file", false, _stopwatch, _meta), _context);
+                _logger.LogError(ex, "Error saving log to file: {Message}", ex.Message);
             }
         }
     }

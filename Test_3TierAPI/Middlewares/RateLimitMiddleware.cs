@@ -7,12 +7,12 @@ namespace Test_3TierAPI.Middlewares
 {
     public class RateLimitMiddleware
     {
-        private readonly RequestDelegate _next; // 다음 미들웨어로 요청을 전달하는 Delegate
-        private readonly ILogger<RateLimitMiddleware> _logger; // 로깅을 위한 ILogger
-        private readonly IMemoryCache _cache; // 클라이언트 요청 횟수를 저장할 메모리 캐시
+        private readonly RequestDelegate _next;
+        private readonly ILogger<RateLimitMiddleware> _logger;
+        private readonly IMemoryCache _cache;
 
-        private const int RateLimitMax = 10; // 최대 요청 횟수 (예 : 10회 / 분)
-        private const int RateLimitWindowSeconds = 60; // 요청 제한 시간 (60초)
+        private const int RateLimitMax = 10;
+        private const int RateLimitWindowSeconds = 60;
 
         public RateLimitMiddleware(RequestDelegate next, ILogger<RateLimitMiddleware> logger, IMemoryCache cache)
         {
@@ -29,7 +29,7 @@ namespace Test_3TierAPI.Middlewares
 
             try
             {
-                // 클라이언트 식별자(IP 주소)를 가져옴
+                // 클라이언트 식별자 가져오기
                 string? clientId = GetClientId(context);
 
                 if (clientId == null)
@@ -39,45 +39,65 @@ namespace Test_3TierAPI.Middlewares
                     return;
                 }
 
-                // 캐시 키 : 클라이언트 요청 제한을 관리하기 위해 사용 (예 : "RateLimit:192.168.0.1")
                 string cacheKey = $"RateLimit:{clientId}";
 
-                // 현재 클라이언트의 남은 요청 횟수를 조회 (캐시에 없으면 새로운 RateLimit 정보 생성)
-                RateLimitInfo? rateLimitInfo = _cache.GetOrCreate(cacheKey, entry =>
+                // 캐시에서 RateLimitInfo 가져오기 (예외 발생 가능성 확인)
+                RateLimitInfo? rateLimitInfo = null;
+                try
                 {
-                    entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(RateLimitWindowSeconds); // 캐시 만료 시간 설정 : 60초 후 만료
-                    return new RateLimitInfo { Remaining = RateLimitMax, Expiration = DateTime.UtcNow.AddSeconds(RateLimitWindowSeconds) };
-                });
+                    rateLimitInfo = _cache.GetOrCreate(cacheKey, entry =>
+                    {
+                        entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(RateLimitWindowSeconds);
+                        return new RateLimitInfo { Remaining = RateLimitMax, Expiration = DateTime.UtcNow.AddSeconds(RateLimitWindowSeconds) };
+                    });
+                }
+                catch (Exception cacheEx)
+                {
+                    _logger.LogError($"Cache access error: {cacheEx.Message}", cacheEx);
+                }
 
-                // 요청 횟수 초과 여부 확인
+                if (rateLimitInfo == null)
+                {
+                    _logger.LogError("RateLimitInfo is null, skipping rate limiting.");
+                    await _next(context);
+                    return;
+                }
+
                 if (rateLimitInfo.Remaining <= 0)
                 {
                     _logger.LogWarning($"Rate limit exceeded for client {clientId}");
-                    
-                    metaDTO.StatusCode = StatusCodes.Status429TooManyRequests;
 
+                    metaDTO.StatusCode = StatusCodes.Status429TooManyRequests;
                     MiddlewareHelper.StoreErrorResponse(MiddlewareHelper.GetErrorResponse<object>(context, "Too Many Requests. Please try again later.", bIsDev, stopwatch, metaDTO), context);
                     return;
                 }
 
-                // 요청 허용 -> 남은 횟수 감소
-                rateLimitInfo.Remaining--; // 요청 횟수 감소
-                _cache.Set(cacheKey, rateLimitInfo, TimeSpan.FromSeconds(RateLimitWindowSeconds)); // 캐시 업데이트
+                rateLimitInfo.Remaining--;
+                _cache.Set(cacheKey, rateLimitInfo, TimeSpan.FromSeconds(RateLimitWindowSeconds));
 
-                // MetaDTO에 RateLimit 정보 저장
                 metaDTO.RateLimitRemaining = rateLimitInfo.Remaining;
                 metaDTO.RateLimitMax = RateLimitMax;
+                context.Items["MetaDTO"] = metaDTO;
 
-                await _next(context); // 다음 미들웨어로 요청 전달
+                await _next(context);
+            }
+            catch (ObjectDisposedException disposedEx)
+            {
+                _logger.LogError($"[ObjectDisposedException] Disposed object: {disposedEx.ObjectName} - {disposedEx.Message}\nStackTrace: {disposedEx.StackTrace}", disposedEx);
+                metaDTO.StatusCode = StatusCodes.Status500InternalServerError;
+                MiddlewareHelper.StoreErrorResponse(MiddlewareHelper.GetErrorResponse<object>(context, "A disposed object was accessed in rate limiting.", bIsDev, stopwatch, metaDTO), context);
+            }
+            catch (NullReferenceException nullEx)
+            {
+                _logger.LogError($"[NullReferenceException] Possible null object access: {nullEx.Message}", nullEx);
+                metaDTO.StatusCode = StatusCodes.Status500InternalServerError;
+                MiddlewareHelper.StoreErrorResponse(MiddlewareHelper.GetErrorResponse<object>(context, "A null reference error occurred in rate limiting.", bIsDev, stopwatch, metaDTO), context);
             }
             catch (Exception ex)
             {
                 _logger.LogError($"Unexpected error in RateLimitMiddleware: {ex.Message}", ex);
-
-                // 500 Internal Server Error 응답 반환
                 metaDTO.StatusCode = StatusCodes.Status500InternalServerError;
                 MiddlewareHelper.StoreErrorResponse(MiddlewareHelper.GetErrorResponse<object>(context, "An unexpected error occurred in rate limiting.", bIsDev, stopwatch, metaDTO), context);
-                return;
             }
         }
 
@@ -85,8 +105,8 @@ namespace Test_3TierAPI.Middlewares
 
         private class RateLimitInfo
         {
-            public int Remaining { get; set; } // 남은 요청 횟수
-            public DateTime Expiration { get; set; } // 만료 시간 (초기화 시점)
+            public int Remaining { get; set; }
+            public DateTime Expiration { get; set; }
         }
     }
 }

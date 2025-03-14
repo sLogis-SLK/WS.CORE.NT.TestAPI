@@ -13,155 +13,203 @@ namespace Test_3TierAPI.Middlewares
         private readonly RequestDelegate _next;
         private readonly ILogger<RequestValidationMiddleware> _logger;
 
-        // 요청 처리를 위한 다음 Delegate(_next)와 로깅(_logger)을 주입받음
         public RequestValidationMiddleware(RequestDelegate next, ILogger<RequestValidationMiddleware> logger)
         {
             _next = next;
             _logger = logger;
         }
 
-        // Middleware의 핵심 기능을 수행하는 Invoke 메서드
         public async Task Invoke(HttpContext context)
         {
-            // exception middleware에서 생성한 items들 가져오기
-            Stopwatch? stopwatch = context.Items.ContainsKey("Stopwatch") ? context.Items["Stopwatch"] as Stopwatch : new Stopwatch();
-            bool bIsDev = context.Items.ContainsKey("bIsDev") && (bool)context.Items["bIsDev"];
-            MetaDTO? meta = context.Items.ContainsKey("MetaDTO") ? context.Items["MetaDTO"] as MetaDTO : new MetaDTO();
-
-            RequestDTO<object>? requestDto = null;
-            string? body = null;
-
-            try
+            // 0. Swagger 요청은 Body 검사를 하지 않음
+            if (context.Request.Path.StartsWithSegments("/swagger") ||
+                context.Request.Path.StartsWithSegments("/favicon.ico"))
             {
-                // 요청 본문을 다시 읽을 수 있도록 버퍼링 활성화
-                // 기본적으로 .net의 HttpRequest.Body는 한 번만 읽을 수 있으므로 이를 다시 읽을 수 있도록 함
-                context.Request.EnableBuffering();
-
-                // 요청 본문을 읽고 Json을 문자열로 변환
-                using var reader = new StreamReader(context.Request.Body, System.Text.Encoding.UTF8, true, 1024, true);
-                body = await reader.ReadToEndAsync();
-
-                // 스트림 위치를 초기화하여 이후 컨트롤러에서 요청 본문을 다시 읽을 수 있도록 함
-                context.Request.Body.Position = 0;
-
-                // 요청 본문이 비어 있는 경우 에러 응답 반환
-                if (string.IsNullOrWhiteSpace(body))
-                {
-                    _logger.LogWarning("Request body is empty");
-                    meta.StatusCode = StatusCodes.Status400BadRequest;
-                    MiddlewareHelper.StoreErrorResponse(MiddlewareHelper.GetErrorResponse<object>(context, "Request body is empty", bIsDev, stopwatch, meta), context);
-                    return;
-                }
-            }
-            catch (Exception ex)
-            { 
-                _logger.LogError($"Error reading request body: {ex.Message}", ex);
-                meta.StatusCode = StatusCodes.Status500InternalServerError;
-                MiddlewareHelper.StoreErrorResponse(MiddlewareHelper.GetErrorResponse<object>(context, "Error reading request body", bIsDev, stopwatch, meta), context);
+                await _next(context);
                 return;
             }
+            // 1. Context에서 필요한 정보를 가져옴 (MetaDTO, Stopwatch, bIsDev)
+            // 튜플 분해(Tuple Deconstruction) 문법 사용
+            (MetaDTO meta, Stopwatch stopwatch, bool bIsDev) = GetContextMetadata(context);
 
-            try
+            // 2. 요청 본문을 읽음 (읽기 실패 시 종료)
+            string? body = await ExtractRequestBody(context, meta, stopwatch, bIsDev);
+            if (body == null) return;
+
+            // 3. JSON 역직렬화 (파싱 실패 시 종료)
+            RequestDTO<object>? requestDto = ParseJsonRequest(body, context, meta, stopwatch, bIsDev);
+            if (requestDto == null) return;
+
+            // 4. HTTP 메서드가 POST 또는 PUT일 경우 데이터 검증 실행
+            bool isPostOrPut = context.Request.Method == HttpMethods.Post || context.Request.Method == HttpMethods.Put;
+            if (isPostOrPut)
             {
-                // JSON 역직렬화에서 예외가 발생할 가능성이 높음
-                requestDto = JsonSerializer.Deserialize<RequestDTO<object>>(body, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-            }
-            catch (JsonException ex)
-            {
-                _logger.LogError($"JSON deserialization error: {ex.Message}", ex);
-                meta.StatusCode = StatusCodes.Status500InternalServerError;
-                MiddlewareHelper.StoreErrorResponse(MiddlewareHelper.GetErrorResponse<object>(context, "Invalid request format (JSON parsing error).", bIsDev, stopwatch, meta), context);
-                return;
-            }
-
-            // http 메서드가 post 또는 put일 경우에만 검증 실행
-            // - GET, DELETE 등의 요청에서는 RequestDTO가 필요하지 않음
-            if (context.Request.Method == HttpMethods.Post || context.Request.Method == HttpMethods.Put)
-            {
-                try
-                {
-                    // 현재 요청된 API 엔드포인트 가져오기
-                    Endpoint? endpoint = context.GetEndpoint();
-                    if(endpoint != null)
-                    {
-                        // 컨트롤러 액션 메서드의 메타데이터를 가져옴
-                        ControllerActionDescriptor? actionDescriptor = endpoint.Metadata.GetMetadata<ControllerActionDescriptor>();
-                        if(actionDescriptor != null)
-                        {
-                            // 해당 컨트롤러의 실제 메서드 정보를 가져옴
-                            MethodInfo methodInfo = actionDescriptor.MethodInfo;
-                            Type? classType = methodInfo.DeclaringType;   // 컨트롤러 클래스 정보 가져오기
-
-                            // 메서드와 컨트롤러의 RequireDataAttribute 가져오기
-                            RequireDataAttribute? methodRequireDataAttr = methodInfo.GetCustomAttribute<RequireDataAttribute>();
-                            RequireDataAttribute? classRequireDataAttr = classType?.GetCustomAttribute<RequireDataAttribute>();
-
-                            // 최종적으로 적용할 RequireData 어노테이션(Attribute) 가져오기
-                            bool isDataRequired = methodRequireDataAttr?.IsRequired ?? classRequireDataAttr?.IsRequired ?? false;
-
-                            // 요청 DTO의 유효성을 검사하고, 실패한 경우 에러 응답 반환
-                            List<string> validationResults = ValidateRequest(requestDto, isDataRequired);
-                            if (validationResults.Count > 0)
-                            {
-                                _logger.LogWarning("Invalid request data: {0}", string.Join(", ", validationResults));
-                                meta.StatusCode = StatusCodes.Status400BadRequest;
-                                MiddlewareHelper.StoreErrorResponse(MiddlewareHelper.GetErrorResponse<object>(context, "Invalid request data.", bIsDev, stopwatch, meta, validationResults), context);
-                                return;
-                            }
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    // 예외 발생 시 오류 메시지를 로깅하고 400 Bad Request 응답 반환
-                    _logger.LogError($"Request validation failed: {ex.Message}");
-                    meta.StatusCode = StatusCodes.Status400BadRequest;
-                    MiddlewareHelper.StoreErrorResponse(MiddlewareHelper.GetErrorResponse<object>(context, "Invalid request format.", bIsDev, stopwatch, meta), context);
-                    return;
-                }
+                bool isValid = ValidateRequestData(context, requestDto, meta, stopwatch, bIsDev);
+                if (!isValid) return;
             }
 
-            // 기존 MetaDTO 사용 및 필요한 정보만 업데이트
-            meta.Requester = requestDto.Requester;
-            meta.SWRequestTimestamp = requestDto.RequestTimestamp;
+            // 5. MetaDTO 정보 업데이트
+            UpdateMetaDTO(context, requestDto, meta);
 
-
-            // 다시 context.Items에 저장
-            context.Items["MetaDTO"] = meta;
-
+            // 6. 다음 미들웨어로 요청 전달
             await _next(context);
         }
 
         /// <summary>
-        /// 요청 DTO를 검증하여 유효성 검사 오류 목록을 반환
+        /// Context에서 기존 Middleware에서 저장한 MetaDTO, Stopwatch, bIsDev 값을 가져옴.
+        /// 존재하지 않으면 기본값을 생성하여 반환.
         /// </summary>
-        public List<string> ValidateRequest(RequestDTO<object> request, bool isDataRequired)
+        private (MetaDTO, Stopwatch, bool) GetContextMetadata(HttpContext context)
         {
-            var errors = new List<string>();
+            // Context.Items에서 기존 데이터를 가져옴 (없으면 기본값 할당)
+            context.Items.TryGetValue("MetaDTO", out object? metaObj);
+            context.Items.TryGetValue("Stopwatch", out object? stopwatchObj);
+            context.Items.TryGetValue("bIsDev", out object? bIsDevObj);
 
-            // 요청 객체가 null이면 에러 반환
+            MetaDTO meta = metaObj as MetaDTO ?? new MetaDTO();
+            Stopwatch stopwatch = stopwatchObj as Stopwatch ?? new Stopwatch();
+            bool bIsDev = bIsDevObj is bool devMode && devMode;
+
+            return (meta, stopwatch, bIsDev);
+        }
+
+        /// <summary>
+        /// 요청 본문을 읽어 문자열로 반환.
+        /// 본문이 없거나 읽기 오류 발생 시, 에러 응답을 생성하고 null 반환.
+        /// </summary>
+        private async Task<string?> ExtractRequestBody(HttpContext context, MetaDTO meta, Stopwatch stopwatch, bool bIsDev)
+        {
+            try
+            {
+                // HTTP 요청 본문을 여러 번 읽을 수 있도록 버퍼링 활성화
+                context.Request.EnableBuffering();
+
+                // StreamReader를 사용하여 요청 본문을 읽음
+                using StreamReader reader = new StreamReader(context.Request.Body, System.Text.Encoding.UTF8, leaveOpen: true);
+                string body = await reader.ReadToEndAsync();
+
+                // 스트림 위치를 0으로 초기화하여 다른 미들웨어에서도 본문을 읽을 수 있도록 함
+                context.Request.Body.Position = 0;
+
+                // 요청 본문이 비어 있으면 예외 발생
+                if (string.IsNullOrWhiteSpace(body))
+                {
+                    throw new InvalidOperationException("Request body is empty");
+                }
+
+                return body;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error reading request body");
+                HandleValidationFailure(context, "Error reading request body", meta, stopwatch, bIsDev, StatusCodes.Status400BadRequest);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// JSON 문자열을 RequestDTO 객체로 변환.
+        /// JSON 파싱 오류 발생 시 에러 응답 반환.
+        /// </summary>
+        private RequestDTO<object>? ParseJsonRequest(string body, HttpContext context, MetaDTO meta, Stopwatch stopwatch, bool bIsDev)
+        {
+            try
+            {
+                return JsonSerializer.Deserialize<RequestDTO<object>>(body, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogError(ex, "JSON parsing error: {Body}", body);
+                HandleValidationFailure(context, "Invalid request format (JSON parsing error).", meta, stopwatch, bIsDev, StatusCodes.Status400BadRequest);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// 요청 데이터를 검증하고, 유효하지 않으면 에러 응답 반환.
+        /// </summary>
+        private bool ValidateRequestData(HttpContext context, RequestDTO<object> requestDto, MetaDTO meta, Stopwatch stopwatch, bool bIsDev)
+        {
+            try
+            {
+                // API 엔드포인트의 컨트롤러 및 메서드 정보를 가져옴
+                Endpoint? endpoint = context.GetEndpoint();
+                ControllerActionDescriptor? actionDescriptor = endpoint?.Metadata.GetMetadata<ControllerActionDescriptor>();
+                MethodInfo? methodInfo = actionDescriptor?.MethodInfo;
+                Type? classType = methodInfo?.DeclaringType;
+
+                // 컨트롤러 또는 메서드에 RequireDataAttribute가 있는지 확인
+                bool isDataRequired = methodInfo?.GetCustomAttribute<RequireDataAttribute>()?.IsRequired ??
+                                      classType?.GetCustomAttribute<RequireDataAttribute>()?.IsRequired ??
+                                      false;
+
+                // 요청 DTO 검증 실행
+                List<string> validationResults = ValidateRequest(requestDto, isDataRequired);
+                if (validationResults.Count > 0)
+                {
+                    _logger.LogWarning("Invalid request data: {Errors}", string.Join(", ", validationResults));
+                    HandleValidationFailure(context, "Invalid request data.", meta, stopwatch, bIsDev, StatusCodes.Status400BadRequest, validationResults);
+                    return false;
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Request validation failed");
+                HandleValidationFailure(context, "Invalid request format.", meta, stopwatch, bIsDev, StatusCodes.Status400BadRequest);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// MetaDTO 정보를 업데이트하여 요청자 및 타임스탬프 추가.
+        /// </summary>
+        private void UpdateMetaDTO(HttpContext context, RequestDTO<object> requestDto, MetaDTO meta)
+        {
+            meta.Requester = requestDto.Requester;
+            meta.SWRequestTimestamp = requestDto.RequestTimestamp;
+            context.Items["MetaDTO"] = meta;
+        }
+
+        /// <summary>
+        /// 요청 DTO의 유효성을 검사하여 실패 메시지 리스트를 반환.
+        /// </summary>
+        private List<string> ValidateRequest(RequestDTO<object>? request, bool isDataRequired)
+        {
+            List<string> errors = new List<string>();
+
             if (request == null)
             {
                 errors.Add("Request body cannot be null");
                 return errors;
             }
 
-            // 필수 필드 검증 (Requester, RequestId, RequestTimestamp)
             if (string.IsNullOrWhiteSpace(request.Requester))
             {
                 errors.Add("Requester is required");
             }
+
             if (request.RequestTimestamp == default || request.RequestTimestamp > DateTime.UtcNow.AddMinutes(5))
             {
                 errors.Add("RequestTimestamp must be a valid past or present timestamp.");
             }
-            // RequireData 어노테이션이 있고, Data가 필수인데 없으면 오류 추가
+
             if (isDataRequired && request.Data == null)
             {
                 errors.Add("Data is required for this endpoint.");
             }
 
             return errors;
+        }
+
+        /// <summary>
+        /// 검증 실패 시 공통적인 에러 처리 로직.
+        /// </summary>
+        private void HandleValidationFailure(HttpContext context, string message, MetaDTO meta, Stopwatch stopwatch, bool bIsDev, int statusCode, List<string>? errors = null)
+        {
+            meta.StatusCode = statusCode;
+            MiddlewareHelper.StoreErrorResponse(MiddlewareHelper.GetErrorResponse<object>(context, message, bIsDev, stopwatch, meta, errors), context);
         }
     }
 }
