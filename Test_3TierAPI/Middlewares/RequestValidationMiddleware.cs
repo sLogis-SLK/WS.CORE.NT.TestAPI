@@ -33,19 +33,19 @@ namespace Test_3TierAPI.Middlewares
             (MetaDTO meta, Stopwatch stopwatch, bool bIsDev) = GetContextMetadata(context);
 
             // 2. 요청 본문을 읽음 (읽기 실패 시 종료)
-            string? body = await ExtractRequestBody(context, meta, stopwatch, bIsDev);
-            if (body == null) return;
+            string? body = await ExtractRequestBody(context);
+            if (body == null) throw new InvalidOperationException("[RequestValidMiddleware] Request body is empty");
 
             // 3. JSON 역직렬화 (파싱 실패 시 종료)
-            RequestDTO<object>? requestDto = ParseJsonRequest(body, context, meta, stopwatch, bIsDev);
-            if (requestDto == null) return;
+            RequestDTO<object>? requestDto = ParseJsonRequest(body);
+            if (requestDto == null) throw new InvalidOperationException("[RequestValidMiddleware] RequestDTO is null");
 
             // 4. HTTP 메서드가 POST 또는 PUT일 경우 데이터 검증 실행
-            bool isPostOrPut = context.Request.Method == HttpMethods.Post || context.Request.Method == HttpMethods.Put;
+            bool isPostOrPut = context.Request.Method == HttpMethods.Post;
             if (isPostOrPut)
             {
-                bool isValid = ValidateRequestData(context, requestDto, meta, stopwatch, bIsDev);
-                if (!isValid) return;
+                bool isValid = ValidateRequestData(context, requestDto);
+                if (!isValid) throw new Exception("[RequestValidMiddleware] Invalid request data");
             }
 
             // 5. MetaDTO 정보 업데이트
@@ -77,7 +77,7 @@ namespace Test_3TierAPI.Middlewares
         /// 요청 본문을 읽어 문자열로 반환.
         /// 본문이 없거나 읽기 오류 발생 시, 에러 응답을 생성하고 null 반환.
         /// </summary>
-        private async Task<string?> ExtractRequestBody(HttpContext context, MetaDTO meta, Stopwatch stopwatch, bool bIsDev)
+        private async Task<string?> ExtractRequestBody(HttpContext context)
         {
             try
             {
@@ -94,16 +94,14 @@ namespace Test_3TierAPI.Middlewares
                 // 요청 본문이 비어 있으면 예외 발생
                 if (string.IsNullOrWhiteSpace(body))
                 {
-                    throw new InvalidOperationException("Request body is empty");
+                    throw new InvalidOperationException("[RequestValidMiddleware] Request body is empty");
                 }
 
                 return body;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error reading request body");
-                HandleValidationFailure(context, "Error reading request body", meta, stopwatch, bIsDev, StatusCodes.Status400BadRequest);
-                return null;
+                throw new Exception("[RequestValidMiddleware] Failed to read request body : " + ex.Message);
             }
         }
 
@@ -111,7 +109,7 @@ namespace Test_3TierAPI.Middlewares
         /// JSON 문자열을 RequestDTO 객체로 변환.
         /// JSON 파싱 오류 발생 시 에러 응답 반환.
         /// </summary>
-        private RequestDTO<object>? ParseJsonRequest(string body, HttpContext context, MetaDTO meta, Stopwatch stopwatch, bool bIsDev)
+        private RequestDTO<object>? ParseJsonRequest(string body)
         {
             try
             {
@@ -119,46 +117,53 @@ namespace Test_3TierAPI.Middlewares
             }
             catch (JsonException ex)
             {
-                _logger.LogError(ex, "JSON parsing error: {Body}", body);
-                HandleValidationFailure(context, "Invalid request format (JSON parsing error).", meta, stopwatch, bIsDev, StatusCodes.Status400BadRequest);
-                return null;
+                throw new JsonException("[RequestValidMiddleware]Failed to parse JSON request: " + ex.Message);
             }
         }
 
         /// <summary>
         /// 요청 데이터를 검증하고, 유효하지 않으면 에러 응답 반환.
         /// </summary>
-        private bool ValidateRequestData(HttpContext context, RequestDTO<object> requestDto, MetaDTO meta, Stopwatch stopwatch, bool bIsDev)
+        private bool ValidateRequestData(HttpContext context, RequestDTO<object> requestDto)
         {
             try
             {
-                // API 엔드포인트의 컨트롤러 및 메서드 정보를 가져옴
+                // 현재 HTTP 요청과 연결된 엔드포인트 정보를 가져옴
+                // ASP.NET Core의 라우팅 정보를 포함한 Endpoint 객체
                 Endpoint? endpoint = context.GetEndpoint();
+
+                // 해당 엔드포인트에서 실행될 컨트롤러 및 메서드 정보를 가져옴
                 ControllerActionDescriptor? actionDescriptor = endpoint?.Metadata.GetMetadata<ControllerActionDescriptor>();
+
+                // 액션 메서드의 정보를 가져옴 (MethodInfo 객체)
                 MethodInfo? methodInfo = actionDescriptor?.MethodInfo;
+
+                // 액션이 속한 컨트롤러의 타입을 가져옴 (Type 객체)
                 Type? classType = methodInfo?.DeclaringType;
 
-                // 컨트롤러 또는 메서드에 RequireDataAttribute가 있는지 확인
+                // 컨트롤러 또는 액션 메서드에 RequireDataAttribute가 있는지 확인
+                // RequireDataAttribute가 true인 경우, 요청 데이터가 반드시 포함되어야 함
                 bool isDataRequired = methodInfo?.GetCustomAttribute<RequireDataAttribute>()?.IsRequired ??
                                       classType?.GetCustomAttribute<RequireDataAttribute>()?.IsRequired ??
                                       false;
 
-                // 요청 DTO 검증 실행
+                // 요청 데이터(requestDto)의 유효성 검사 실행
                 List<string> validationResults = ValidateRequest(requestDto, isDataRequired);
+
+                // 유효성 검사 실패 시 예외 발생
                 if (validationResults.Count > 0)
                 {
-                    _logger.LogWarning("Invalid request data: {Errors}", string.Join(", ", validationResults));
-                    HandleValidationFailure(context, "Invalid request data.", meta, stopwatch, bIsDev, StatusCodes.Status400BadRequest, validationResults);
-                    return false;
+                    // 에러 메시지를 쉼표로 연결하여 반환
+                    throw new Exception("[RequestValidMiddleware] Invalid request data: " + string.Join(", ", validationResults));
                 }
 
+                // 검증이 통과된 경우 true 반환
                 return true;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Request validation failed");
-                HandleValidationFailure(context, "Invalid request format.", meta, stopwatch, bIsDev, StatusCodes.Status400BadRequest);
-                return false;
+                // 유효성 검사 중 오류 발생 시, 예외를 감싸서 다시 던짐
+                throw new Exception("[RequestValidMiddleware] Failed to validate request data: ", ex);
             }
         }
 
@@ -190,9 +195,16 @@ namespace Test_3TierAPI.Middlewares
                 errors.Add("Requester is required");
             }
 
-            if (request.RequestTimestamp == default || request.RequestTimestamp > DateTime.UtcNow.AddMinutes(5))
+            
+            // 1. RequestTimestamp가 기본값 (0001-01-01 00:00:00)인지 확인
+            if (request.RequestTimestamp == default)
             {
-                errors.Add("RequestTimestamp must be a valid past or present timestamp.");
+                errors.Add("RequestTimestamp is required and cannot be empty.");
+            }
+            // 2. RequestTimestamp가 현재 서버 시간보다 5분 이상 미래인지 확인
+            else if (request.RequestTimestamp > DateTime.Now.AddMinutes(5))
+            {
+                errors.Add("RequestTimestamp cannot be more than 5 minutes in the future.");
             }
 
             if (isDataRequired && request.Data == null)
@@ -201,15 +213,6 @@ namespace Test_3TierAPI.Middlewares
             }
 
             return errors;
-        }
-
-        /// <summary>
-        /// 검증 실패 시 공통적인 에러 처리 로직.
-        /// </summary>
-        private void HandleValidationFailure(HttpContext context, string message, MetaDTO meta, Stopwatch stopwatch, bool bIsDev, int statusCode, List<string>? errors = null)
-        {
-            meta.StatusCode = statusCode;
-            MiddlewareHelper.StoreErrorResponse(MiddlewareHelper.GetErrorResponse<object>(context, message, bIsDev, stopwatch, meta, errors), context);
         }
     }
 }

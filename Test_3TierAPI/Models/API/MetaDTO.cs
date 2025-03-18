@@ -6,7 +6,7 @@ namespace Test_3TierAPI.Models.API
     {
         public string? JobUUID { get; set; } // 작업 UUID
         public string? ExecutionTime { get; set; } // API 처리 시간 (ms)
-        public string? ServerTimeStamp { get; set; } // 응답 생성 시간 (UTC)
+        public DateTime? ServerTimeStamp { get; set; } // 응답 생성 시간 (UTC)
         public DateTime SWRequestTimestamp { get; set; } // 소프트웨어 요청 시각
         public string? RequestIP { get; set; } // 요청 IP 주소
         public string? Requester { get; set; } // 요청자(소프트웨어 사용자 이름)

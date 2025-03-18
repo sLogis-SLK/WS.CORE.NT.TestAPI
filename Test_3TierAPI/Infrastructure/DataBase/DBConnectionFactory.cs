@@ -23,7 +23,7 @@ namespace Test_3TierAPI.Infrastructure.DataBase
             string connectionString = GetConnectionString(strType);
             DbConnection connection = CreateDbConnection(strType, connectionString);
 
-            await connection.OpenAsync(); // 비동기 연결
+            // await connection.OpenAsync(); // 비동기 연결
             return connection;
         }
 

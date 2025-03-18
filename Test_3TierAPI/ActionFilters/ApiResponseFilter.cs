@@ -1,0 +1,174 @@
+﻿//using Microsoft.AspNetCore.Mvc;
+//using Microsoft.AspNetCore.Mvc.Filters;
+//using System.Diagnostics;
+//using Test_3TierAPI.Models.API;
+
+//namespace Test_3TierAPI.ActionFilters
+//{
+//    public class ApiResponseFilter : IActionFilter
+//    {
+//        private readonly ILogger<ApiResponseFilter> _logger;
+//        private readonly IHostEnvironment _env;
+
+//        public ApiResponseFilter(ILogger<ApiResponseFilter> logger, IHostEnvironment env)
+//        {
+//            _logger = logger;
+//            _env = env;
+//        }
+
+//        public void OnActionExecuting(ActionExecutingContext context)
+//        {
+//            // Controller 실행 전 수행되어야 할 로직 (현재 필요 없음)
+//        }
+
+//        public void OnActionExecuted(ActionExecutedContext context)
+//        {
+//            try
+//            {
+//                // 1️. Stopwatch 가져오기 (없으면 로그만 남기고 진행)
+//                if (!context.HttpContext.Items.TryGetValue("Stopwatch", out var stopwatchObj) || stopwatchObj is not Stopwatch stopwatch)
+//                {
+//                    _logger.LogWarning("[ApiResponseFilter] Stopwatch not found in HttpContext.Items.");
+//                    stopwatch = new Stopwatch(); // 기본값 설정
+//                }
+//                stopwatch.Stop();
+
+//                // 2️. MetaDTO 필수 (없으면 예외 발생)
+//                if (!context.HttpContext.Items.TryGetValue("MetaDTO", out var metaObj) || metaObj is not MetaDTO meta)
+//                {
+//                    throw new InvalidOperationException("[ApiResponseFilter] MetaDTO is missing in HttpContext.Items.");
+//                }
+
+//                // 최종 실행시간 체크 - ExceptionMiddleware에서 시작된 stopwatch 사용
+//                meta.ExecutionTime = $"{stopwatch.ElapsedMilliseconds}ms";
+
+//                // 3️. context.Result가 ObjectResult인지 확인 (아니면 예외 발생)
+//                if (context.Result is not ObjectResult result)
+//                {
+//                    throw new InvalidOperationException("[ApiResponseFilter] Result is not ObjectResult.");
+//                }
+
+//                var responseData = result.Value; // 컨트롤러 응답 데이터(DB 응답 데이터)
+//                if (responseData == null) throw new InvalidOperationException("[ApiResponseFilter] Response data is null.");
+
+//                // 4️. ResponseDTO 생성
+//                var response = new ResponseDTO<object>
+//                {
+//                    JobUUID = meta.JobUUID,
+//                    Success = true,
+//                    Message = "요청이 정상적으로 처리되었습니다.",
+//                    Data = responseData,
+//                    Meta = meta
+//                };
+
+//                response.StatusCode = response.Meta.StatusCode = context.HttpContext.Response.StatusCode;   
+
+//                // 5️. ResponseDTO를 HttpContext.Items에 저장 (로깅 미들웨어에서 사용)
+//                context.HttpContext.Items["ResponseDTO"] = response;
+
+//                // 6️. 운영 환경에서는 MetaDTO를 숨김
+//                if (!_env.IsDevelopment())
+//                {
+//                    response.Meta = null;
+//                }
+
+//                // 7️. 최종 응답을 ObjectResult로 변경
+//                context.Result = new ObjectResult(response);
+//            }
+//            catch (Exception ex)
+//            {
+//                // 예외 발생 시 ExceptionHandlingMiddleware로 전달
+//                throw new Exception($"[ApiResponseFilter] Error: {ex.Message}");
+//            }
+//        }
+//    }
+//}
+
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Filters;
+using System.Diagnostics;
+using Test_3TierAPI.Models.API;
+
+namespace Test_3TierAPI.ActionFilters
+{
+    public class ApiResponseFilter : IActionFilter
+    {
+        private readonly ILogger<ApiResponseFilter> _logger;
+        private readonly IHostEnvironment _env;
+
+        public ApiResponseFilter(ILogger<ApiResponseFilter> logger, IHostEnvironment env)
+        {
+            _logger = logger;
+            _env = env;
+        }
+
+        public void OnActionExecuting(ActionExecutingContext context)
+        {
+            // Controller 실행 전 수행되어야 할 로직 (현재 필요 없음)
+        }
+
+        public void OnActionExecuted(ActionExecutedContext context)
+        {
+            // 1️. Stopwatch 가져오기 (없으면 로그만 남기고 진행)
+            if (!context.HttpContext.Items.TryGetValue("Stopwatch", out var stopwatchObj) || stopwatchObj is not Stopwatch stopwatch)
+            {
+                _logger.LogWarning("[ApiResponseFilter] Stopwatch not found in HttpContext.Items.");
+                stopwatch = new Stopwatch(); // 기본값 설정
+            }
+            stopwatch.Stop();
+
+            // 2️. MetaDTO 가져오기 (없으면 기본값 할당)
+            if (!context.HttpContext.Items.TryGetValue("MetaDTO", out var metaObj) || metaObj is not MetaDTO meta)
+            {
+                _logger.LogWarning("[ApiResponseFilter] MetaDTO is missing in HttpContext.Items. Creating a default instance.");
+                meta = new MetaDTO
+                {
+                    ServerTimeStamp = DateTime.UtcNow,
+                    RequestIP = context.HttpContext.Connection.RemoteIpAddress?.ToString(),
+                    RequestURL = context.HttpContext.Request.Path,
+                    JobUUID = Guid.NewGuid().ToString()
+                };
+            }
+
+            // 최종 실행시간 체크
+            meta.ExecutionTime = $"{stopwatch.ElapsedMilliseconds}ms";
+
+            // 3️. context.Result가 ObjectResult인지 확인
+            if (context.Result is not ObjectResult result)
+            {
+                _logger.LogWarning("[ApiResponseFilter] Result is not ObjectResult. Creating a default response.");
+                result = new ObjectResult(null)
+                {
+                    StatusCode = context.HttpContext.Response.StatusCode
+                };
+            }
+
+            // 컨트롤러 응답 데이터(DB 응답 데이터)
+            var responseData = result.Value ?? new object(); // 기본값 설정
+
+            // 4️. ResponseDTO 생성
+            var response = new ResponseDTO<object>
+            {
+                JobUUID = meta.JobUUID,
+                Success = true,
+                Message = "요청이 정상적으로 처리되었습니다.",
+                Data = responseData,
+                Meta = meta
+            };
+
+            response.StatusCode = response.Meta.StatusCode = context.HttpContext.Response.StatusCode;
+
+            // 5️. ResponseDTO를 HttpContext.Items에 저장 (로깅 미들웨어에서 사용)
+            context.HttpContext.Items["ResponseDTO"] = response;
+
+            // 6️. 운영 환경에서는 MetaDTO를 숨김
+            if (!_env.IsDevelopment())
+            {
+                response.Meta = null;
+            }
+
+            // 7️. 최종 응답을 ObjectResult로 변경
+            context.Result = new ObjectResult(response);    // 응답 response를 깊은 복사함. 그래서 로깅 미들웨어에서 Data를 null로 만들어도 문제가 없음
+        }
+    }
+}

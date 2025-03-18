@@ -1,38 +1,47 @@
 ﻿using Microsoft.AspNetCore.Mvc;
+using System.Data;
 using Test_3TierAPI.Models.API;
+using Test_3TierAPI.Repositories;
 
 namespace Test_3TierAPI.Services.공통
 {
     public class FrmTRCOM00001Service
     {
         private readonly ILogger<FrmTRCOM00001Service> _logger;
-        public FrmTRCOM00001Service(ILogger<FrmTRCOM00001Service> logger)
+        private readonly TestRepository _testRepository;    
+        public FrmTRCOM00001Service(ILogger<FrmTRCOM00001Service> logger, TestRepository testRepository)
         {
             _logger = logger;
+            _testRepository = testRepository;
         }
 
-        public async Task<ResponseDTO<Dictionary<string, object>>> LooupBtn(RequestDTO<object> data)
+        // 서비스에서는 DB 조회결과만 반환
+        public async Task<object> LooupBtn(RequestDTO<object> data)
         {
+            DataTable table = await _testRepository.Test();
             // 예제 데이터 (단일 객체)
-            var responseData = new Dictionary<string, object>
-            {
-                { "회원사코드", "1001" },
-                { "그룹코드", "A001" },
-                { "사용자명", "홍길동" },
-                { "권한", "관리자" }
-            };
+            //var responseData = new Dictionary<string, object>
+            //{
+            //    { "회원사코드", "1001" },
+            //    { "그룹코드", "A001" },
+            //    { "사용자명", "홍길동" },
+            //    { "권한", "관리자" }
+            //};
 
-            // ResponseDTO 생성
-            var responseDto = new ResponseDTO<Dictionary<string, object>>
-            {
-                JobUUID = Guid.NewGuid().ToString(),
-                Success = true,
-                StatusCode = 200,                               // DB또는 다른 API 호출 결과에 따른 StatusCode 할당 필요
-                Message = "요청이 정상적으로 처리되었습니다.",
-                Data = responseData
-            };
+            return table;
+        }
 
-            return responseDto;
+
+        public async Task<object> LooupBtn2(RequestDTO<object> data)
+        {
+            DataTable table = await _testRepository.Test2();
+            return table;
+        }
+
+        public async Task<object> GetProcedureTest(RequestDTO<object> data)
+        {
+            DataTable table = await _testRepository.GetProcedureTest();
+            return table;
         }
     }
 }

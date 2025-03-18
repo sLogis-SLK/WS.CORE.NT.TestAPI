@@ -1,5 +1,6 @@
 ﻿using Microsoft.Extensions.Caching.Memory;
 using System.Diagnostics;
+using Test_3TierAPI.Exceptions;
 using Test_3TierAPI.Helpers;
 using Test_3TierAPI.Models.API;
 
@@ -23,8 +24,6 @@ namespace Test_3TierAPI.Middlewares
 
         public async Task Invoke(HttpContext context)
         {
-            Stopwatch? stopwatch = context.Items.ContainsKey("Stopwatch") ? context.Items["Stopwatch"] as Stopwatch : new Stopwatch();
-            bool bIsDev = context.Items.ContainsKey("bIsDev") ? (bool)context.Items["bIsDev"] : false;
             MetaDTO? metaDTO = context.Items.ContainsKey("MetaDTO") ? context.Items["MetaDTO"] as MetaDTO : new MetaDTO();
 
             try
@@ -33,11 +32,7 @@ namespace Test_3TierAPI.Middlewares
                 string? clientId = GetClientId(context);
 
                 if (clientId == null)
-                {
-                    _logger.LogWarning("Client IP address not found");
-                    MiddlewareHelper.StoreErrorResponse(MiddlewareHelper.GetErrorResponse<object>(context, "Client IP address not found", bIsDev, stopwatch, metaDTO), context);
-                    return;
-                }
+                    throw new InvalidOperationException("Clinet IP addresss not found");
 
                 string cacheKey = $"RateLimit:{clientId}";
 
@@ -63,41 +58,21 @@ namespace Test_3TierAPI.Middlewares
                     return;
                 }
 
-                if (rateLimitInfo.Remaining <= 0)
-                {
-                    _logger.LogWarning($"Rate limit exceeded for client {clientId}");
-
-                    metaDTO.StatusCode = StatusCodes.Status429TooManyRequests;
-                    MiddlewareHelper.StoreErrorResponse(MiddlewareHelper.GetErrorResponse<object>(context, "Too Many Requests. Please try again later.", bIsDev, stopwatch, metaDTO), context);
-                    return;
-                }
+                if (rateLimitInfo.Remaining <= 0) throw new TooManyRequestsException("Rate limit exceeded");
 
                 rateLimitInfo.Remaining--;
                 _cache.Set(cacheKey, rateLimitInfo, TimeSpan.FromSeconds(RateLimitWindowSeconds));
 
+                // MetaDTO 업데이트
                 metaDTO.RateLimitRemaining = rateLimitInfo.Remaining;
                 metaDTO.RateLimitMax = RateLimitMax;
                 context.Items["MetaDTO"] = metaDTO;
 
                 await _next(context);
             }
-            catch (ObjectDisposedException disposedEx)
-            {
-                _logger.LogError($"[ObjectDisposedException] Disposed object: {disposedEx.ObjectName} - {disposedEx.Message}\nStackTrace: {disposedEx.StackTrace}", disposedEx);
-                metaDTO.StatusCode = StatusCodes.Status500InternalServerError;
-                MiddlewareHelper.StoreErrorResponse(MiddlewareHelper.GetErrorResponse<object>(context, "A disposed object was accessed in rate limiting.", bIsDev, stopwatch, metaDTO), context);
-            }
-            catch (NullReferenceException nullEx)
-            {
-                _logger.LogError($"[NullReferenceException] Possible null object access: {nullEx.Message}", nullEx);
-                metaDTO.StatusCode = StatusCodes.Status500InternalServerError;
-                MiddlewareHelper.StoreErrorResponse(MiddlewareHelper.GetErrorResponse<object>(context, "A null reference error occurred in rate limiting.", bIsDev, stopwatch, metaDTO), context);
-            }
             catch (Exception ex)
             {
-                _logger.LogError($"Unexpected error in RateLimitMiddleware: {ex.Message}", ex);
-                metaDTO.StatusCode = StatusCodes.Status500InternalServerError;
-                MiddlewareHelper.StoreErrorResponse(MiddlewareHelper.GetErrorResponse<object>(context, "An unexpected error occurred in rate limiting.", bIsDev, stopwatch, metaDTO), context);
+                throw new Exception("RateLimitMiddleware Error", ex); // InnerException 유지
             }
         }
 

@@ -26,25 +26,28 @@ namespace Test_3TierAPI.Controllers
         {
             var response = await _frmTRCOM00001Service.LooupBtn(data);
 
-            var _meta = HttpContext.Items.TryGetValue("MetaDTO", out object? metaObj) && metaObj is MetaDTO meta
-                ? meta
-                : null;
+            // controller단에서는 그저 DB 조회결과만 반환,
+            // ResponseDTO 생성은 ApiResponseFilter에서 처리
+            return Ok(response);
+        }
 
+        [HttpPost("looupBtn2")]
+        public async Task<IActionResult> LooupBtn2([FromBody] RequestDTO<object> data)
+        {
+            var response = await _frmTRCOM00001Service.LooupBtn2(data);
 
-            response.Meta = _meta;
-            response.StatusCode = response.Meta.StatusCode = HttpContext.Response.StatusCode;
+            // controller단에서는 그저 DB 조회결과만 반환,
+            // ResponseDTO 생성은 ApiResponseFilter에서 처리
+            return Ok(response);
+        }
 
-            // statusCode에 따라 적절한 HTTP 응답 반환
-            return response.StatusCode switch
-            {
-                200 => Ok(response), // 정상 응답
-                400 => BadRequest(response), // 잘못된 요청
-                401 => Unauthorized(response), // 인증 오류
-                403 => Forbid(), // 접근 금지
-                404 => NotFound(response), // 데이터 없음
-                500 => StatusCode(500, response), // 서버 오류
-                _ => StatusCode(response.StatusCode, response) // 기타 상태 코드
-            };
+        [HttpPost("getProcedureTest")]
+        public async Task<IActionResult> GetProcedureTest([FromBody] RequestDTO<object> data)
+        {
+            var response = await _frmTRCOM00001Service.GetProcedureTest(data);
+            // controller단에서는 그저 DB 조회결과만 반환,
+            // ResponseDTO 생성은 ApiResponseFilter에서 처리
+            return Ok(response);
         }
     }
 }

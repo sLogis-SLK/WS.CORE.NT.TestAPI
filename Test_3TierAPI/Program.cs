@@ -1,18 +1,44 @@
+using Newtonsoft.Json;
+using Test_3TierAPI.ActionFilters;
+using Test_3TierAPI.Infrastructure.DataBase;
 using Test_3TierAPI.Middlewares;
+using Test_3TierAPI.Repositories;
 using Test_3TierAPI.Services.공통;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 
-builder.Services.AddControllers();
+builder.Services.AddControllers(options =>
+{
+    options.Filters.Add<ApiResponseFilter>();
+});
+
+// Newtonsoft.Json을 기본 직렬화 라이브러리로 지정
+// DataTable 객체를 자동으로 직렬화 할 수 있도록 하기 위함
+builder.Services.AddControllers()
+    .AddNewtonsoftJson(options =>
+    {
+        // DataTable 직렬화 가능하도록 설정
+        options.SerializerSettings.ReferenceLoopHandling = ReferenceLoopHandling.Ignore;
+        options.SerializerSettings.Formatting = Formatting.Indented;
+    });
+
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddHttpClient();
 builder.Services.AddSwaggerGen();
 builder.Services.AddMemoryCache();
 
+// services
 builder.Services.AddScoped<FrmTRCOM00001Service>();
+
+// infra
+builder.Services.AddSingleton<DBConnectionFactory>();
+builder.Services.AddScoped<DatabaseTransactionManager>();
+
+// Repository
+builder.Services.AddScoped<TestRepository>();
 
 var app = builder.Build();
 
@@ -31,7 +57,7 @@ app.UseMiddleware<RateLimitMiddleware>();
 // 4. 요청 데이터 유효성 검사
 app.UseMiddleware<RequestValidationMiddleware>();
 
-//// 5. 성능 모니터링
+//// 5. 성능 모니터링 : 사용 안함. action filter로 대체
 //app.UseMiddleware<PerformanceMonitoringMiddleware>();
 
 // Configure the HTTP request pipeline.
@@ -48,3 +74,4 @@ app.UseAuthorization();
 app.MapControllers();
 
 app.Run();
+
