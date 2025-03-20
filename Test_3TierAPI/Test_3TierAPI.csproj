@@ -21,5 +21,9 @@
     <PackageReference Include="Oracle.ManagedDataAccess" Version="23.7.0" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
   </ItemGroup>
+	
+  <ItemGroup>
+    <Folder Include="Services\DataTransfer\" />
+  </ItemGroup>
 
 </Project>

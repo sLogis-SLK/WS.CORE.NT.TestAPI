@@ -10,8 +10,12 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services to the container.
 builder.Services.AddControllers(options =>
 {
-    // Action Filter 추가
-    options.Filters.Add<ApiResponseFilter>();
+    // 필터 순서는 OnActionExecuted 메서드의 경우 등록의 역순으로 실행됨 - 컨트롤러 실행 이후에 작동하는 함수
+    // 아래 순서로 등록하면:
+    // - OnActionExecuting: ApiResponseFilter → ResponseCompressionFilter
+    // - OnActionExecuted: ResponseCompressionFilter → ApiResponseFilter
+    options.Filters.Add<ResponseCompressionFilter>();   // 두 번째 실행
+    options.Filters.Add<ApiResponseFilter>();           // 첫 번째 실행
 });
 
 // Newtonsoft.Json을 기본 직렬화 라이브러리로 지정
@@ -44,20 +48,20 @@ builder.Services.AddScoped<TestRepository>();
 
 var app = builder.Build();
 
-// 미들웨어 모음
+// 미들웨어 순서
 // 0. 추후, 인증 및 권한 부여 미들웨어 추가 예정
 
 // 1. 예외 처리 및 초기 Items 생성 미들웨어
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 
-// 2. API 로그 기록
-app.UseMiddleware<LoggingMiddleware>();
-
-// 3. Rate Limit 검사 (요청 초과 시 차단)
+// 2. 요청 제한 검사 (요청 초과 시 차단)
 app.UseMiddleware<RateLimitMiddleware>();
 
-// 4. 요청 데이터 유효성 검사
+// 3. 요청 데이터 유효성 검사
 app.UseMiddleware<RequestValidationMiddleware>();
+
+// 4. API 로그 기록 (로그 관리 개선된 미들웨어)
+app.UseMiddleware<LoggingMiddleware>();
 
 //// 5. 성능 모니터링 : 사용 안함. action filter로 대체
 //app.UseMiddleware<PerformanceMonitoringMiddleware>();
@@ -76,4 +80,3 @@ app.UseAuthorization();
 app.MapControllers();
 
 app.Run();
-

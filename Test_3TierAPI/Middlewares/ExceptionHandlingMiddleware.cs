@@ -65,13 +65,9 @@ namespace Test_3TierAPI.Middlewares
                 // 최신 MetaDTO 가져오기 (다른 미들웨어에서 업데이트 한 값 반영)
                 context.Items.TryGetValue("MetaDTO", out var metaObj);
                 meta = metaObj as MetaDTO ?? meta;
-                
+
                 // 가장 처음의 예외 가져오기
-                Exception innerEx = ex;
-                while (innerEx.InnerException != null)
-                {
-                    innerEx = innerEx.InnerException;
-                }
+                Exception innerEx = GetInnermostException(ex);
 
                 // http 상태 코드 설정
                 int statusCode = MiddlewareHelper.GetStatusCode(innerEx);
@@ -95,7 +91,7 @@ namespace Test_3TierAPI.Middlewares
                     Meta = meta // 로그 저장을 위해 모든 정보를 포함
                 };
 
-                await MiddlewareHelper.SaveLogToFileAsync(_logger, errorResponseDTO, errorResponseDTO.Success);
+                await MiddlewareHelper.SaveLogToFileAsync(_logger, errorResponseDTO, false, innerEx);
                 
                 // 개발 환경 여부에 따른 Respone 가공
                 if(!bIsDev)
@@ -104,8 +100,19 @@ namespace Test_3TierAPI.Middlewares
                     errorResponseDTO.Meta = null;   // 운영환경이 아니면 metaDTO 제거
                 }
 
+                context.Response.ContentType = "application/json";
                 await context.Response.WriteAsJsonAsync(errorResponseDTO);
             }
+        }
+
+        private Exception GetInnermostException(Exception ex)
+        {
+            Exception innerEx = ex;
+            while (innerEx.InnerException != null)
+            {
+                innerEx = innerEx.InnerException;
+            }
+            return innerEx;
         }
     }
 }

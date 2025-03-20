@@ -24,10 +24,15 @@ namespace Test_3TierAPI.Middlewares
             await _next(context); // 다음 미들웨어 실행
 
             // ResponseDTO 가져오기
-            context.Items.TryGetValue("ResponseDTO", out var responseObj);
-            if (responseObj is ResponseDTO<object> responseDto)
+            if (context.Items.TryGetValue("ResponseDTO", out var responseObj) &&
+                responseObj is ResponseDTO<object> responseDto)
             {
+                // MiddlewareHelper의 정적 메서드 사용하여 로그 저장
                 await MiddlewareHelper.SaveLogToFileAsync(_logger, responseDto, responseDto.Success);
+            }
+            else
+            {
+                _logger.LogWarning("[LoggingMiddleware] ResponseDTO not found in HttpContext.Items.");
             }
         }
     }

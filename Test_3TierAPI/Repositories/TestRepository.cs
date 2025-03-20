@@ -56,7 +56,7 @@ namespace Test_3TierAPI.Repositories
             object param = new
             {
                 B코드 = "SH",
-                조회시작일 = "20250311",
+                조회시작일 = "20250317",
                 조회종료일 = "20250318",
                 상태구분 = "%",
                 승인요청여부 = "%",
