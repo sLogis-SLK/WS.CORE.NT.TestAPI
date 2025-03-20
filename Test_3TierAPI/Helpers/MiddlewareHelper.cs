@@ -132,16 +132,13 @@ namespace Test_3TierAPI.Helpers
             return endpoint;
         }
 
-        /// <summary>
-        /// Exception에 따른 HTTP 상태 코드 반환
-        /// </summary>
-        /// <param name="ex">예외 객체</param>
-        /// <returns>HTTP 상태 코드</returns>
+        // MiddlewareHelper.cs 파일에 추가
         public static int GetStatusCode(Exception ex)
         {
             return ex switch
             {
                 TooManyRequestsException => StatusCodes.Status429TooManyRequests,
+                FieldValidationException => StatusCodes.Status400BadRequest,
                 ArgumentException or InvalidOperationException => StatusCodes.Status400BadRequest,
                 UnauthorizedAccessException => StatusCodes.Status401Unauthorized,
                 KeyNotFoundException => StatusCodes.Status404NotFound,

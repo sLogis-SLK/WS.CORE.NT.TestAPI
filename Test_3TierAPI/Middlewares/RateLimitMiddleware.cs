@@ -17,7 +17,7 @@ namespace Test_3TierAPI.Middlewares
         private readonly ILogger<RateLimitMiddleware> _logger;
         private readonly IMemoryCache _cache;
 
-        private const int RateLimitMax = 10;
+        private const int RateLimitMax = 50;
         private const int RateLimitWindowSeconds = 60;
 
         public RateLimitMiddleware(RequestDelegate next, ILogger<RateLimitMiddleware> logger, IMemoryCache cache)

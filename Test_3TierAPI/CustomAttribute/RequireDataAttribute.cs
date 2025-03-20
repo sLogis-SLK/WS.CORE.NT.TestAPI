@@ -1,4 +1,4 @@
-﻿namespace Test_3TierAPI.CustomAnnotation
+﻿namespace Test_3TierAPI.CustomAttribute
 {
     /// <summary>
     /// 각 엔드포인트를 위한 커스텀 Attribute(어노테이션)
