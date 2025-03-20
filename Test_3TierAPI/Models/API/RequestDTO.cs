@@ -3,6 +3,13 @@ using System.Data;
 
 namespace Test_3TierAPI.Models.API
 {
+    /// <summary>
+    /// RequestDTO
+    /// API 요청에 대한 정보를 담는 DTO
+    /// 이것을 사용하고 모든 요청을 POST로 던지면 깔끔할거 같긴함
+    /// 단 논의 필요
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
     public class RequestDTO<T>
     {
         public string? Requester { get; set; }  // 요청자

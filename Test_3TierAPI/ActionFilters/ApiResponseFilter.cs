@@ -86,6 +86,7 @@
 
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
+using System.Data;
 using System.Diagnostics;
 using Test_3TierAPI.Models.API;
 
@@ -107,6 +108,12 @@ namespace Test_3TierAPI.ActionFilters
             // Controller 실행 전 수행되어야 할 로직 (현재 필요 없음)
         }
 
+        /// <summary>
+        /// 컨트롤러 응답 데이터를 ResponseDTO로 변환 (자동으로 변환)
+        /// 내부적으로 Newtonsoft.Json을 사용하여 DataTable도 자동으로 변환(Program.cs에 AddControllers().AddNewtonsoftJson() 추가 되어 있음)
+        /// 이 클래스에는 Exception 구현하면 안됨 -> ExceptionMiddleware로 예외 처리 하는 로직에 문제 생김
+        /// </summary>
+        /// <param name="context"></param>
         public void OnActionExecuted(ActionExecutedContext context)
         {
             // 1️. Stopwatch 가져오기 (없으면 로그만 남기고 진행)
@@ -153,8 +160,11 @@ namespace Test_3TierAPI.ActionFilters
                 Success = true,
                 Message = "요청이 정상적으로 처리되었습니다.",
                 Data = responseData,
+                TableCount = 0,
                 Meta = meta
             };
+
+            if (response.Data is DataTable table) response.TableCount = response.Meta.TableCount = table.Rows.Count;
 
             response.StatusCode = response.Meta.StatusCode = context.HttpContext.Response.StatusCode;
 

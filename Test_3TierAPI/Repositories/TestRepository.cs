@@ -1,4 +1,5 @@
-﻿using System.Data;
+﻿using Microsoft.VisualBasic;
+using System.Data;
 using Test_3TierAPI.Infrastructure.DataBase;
 
 namespace Test_3TierAPI.Repositories
@@ -15,15 +16,15 @@ namespace Test_3TierAPI.Repositories
         // 원래는 RequestDTO 받아야 함
         public async Task<DataTable> Test()
         {
-            string procedureName = "usp_온라인_처리이력_Get";
-            object param = new
-            {
-                자체주문번호 = "1N22503100301550",
-                중요전달사항만 = 1,
-                조회구분자 = 0
-            };
+            //string procedureName = "usp_온라인_처리이력_Get";
+            //object param = new
+            //{
+            //    자체주문번호 = "1N22503100301550",
+            //    중요전달사항만 = 1,
+            //    조회구분자 = 0
+            //};
 
-            DataTable response = await _dbManager.GetDataTableAsync("02", procedureName, param);
+            //DataTable response = await (await _dbManager.ExecuteProcedureAsync("02", procedureName, param)).ToDataTableAsync();
 
             // C#에서 @"" 사용 시 여러 줄 문자열을 깔끔하게 작성 가능.
             string query = @"
@@ -32,7 +33,7 @@ namespace Test_3TierAPI.Repositories
                 WHERE 자체주문번호 = '1N22503100301550'
                 ORDER BY 등록일시";
 
-            DataTable response2 = await _dbManager.ExecuteQueryAsync<DataTable>("02", query);
+            DataTable response2 = await _dbManager.GetDataTableAsync("02", query, CommandType.Text);
 
             return response2;
         }
@@ -41,20 +42,21 @@ namespace Test_3TierAPI.Repositories
         {
             string query = @"
                 SELECT *
-                FROM 온라인_반품상세 가 WITH (NOLOCK)
-                WHERE 가.등록일시 BETWEEN '20250316' AND '20250318'";
-            DataTable response = await _dbManager.ExecuteQueryAsync<DataTable>("02", query);
+                FROM 온라인_주문마스터 가 WITH (NOLOCK)
+                WHERE 가.등록일시 BETWEEN '20250317' AND '20250318' AND ";
+            
+            DataTable response = await _dbManager.GetDataTableAsync("02", query, CommandType.Text);
             return response;
         }
 
         public async Task<DataTable> GetProcedureTest()
         {
             string procedureName = "usp_온라인_반품처리_물류용_Get";
-
+            // string procedureName = "usp_온라인_반품처리_물류_Get"; // 에러 발생을 위한 변수
             object param = new
             {
                 B코드 = "SH",
-                조회시작일 = "20250317",
+                조회시작일 = "20250311",
                 조회종료일 = "20250318",
                 상태구분 = "%",
                 승인요청여부 = "%",
@@ -62,7 +64,7 @@ namespace Test_3TierAPI.Repositories
                 조회구분자 = 0
             };
 
-            DataTable response = await _dbManager.GetDataTableAsync("02", procedureName, param);
+            DataTable response = await _dbManager.GetDataTableAsync("02", procedureName, CommandType.StoredProcedure, param);
             return response;
         }
     }

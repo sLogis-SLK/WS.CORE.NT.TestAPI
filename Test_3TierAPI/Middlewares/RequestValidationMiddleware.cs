@@ -8,6 +8,12 @@ using Test_3TierAPI.Models.API;
 
 namespace Test_3TierAPI.Middlewares
 {
+    /// <summary>
+    /// RequestValidationMiddleware
+    /// RequestDTO의 유효성을 검사하는 미들웨어
+    /// [RequireData] 커스텀 어트리뷰트를 사용하여 요청 데이터의 필수 여부를 지정 및 확인
+    /// [RequireData(true)] 인 컨트롤러 클래스 또는 Endpoint 함수에 대해서만 RequestDTO의 Data가 필수로 요구됨
+    /// </summary>
     public class RequestValidationMiddleware
     {
         private readonly RequestDelegate _next;
@@ -76,6 +82,8 @@ namespace Test_3TierAPI.Middlewares
         /// <summary>
         /// 요청 본문을 읽어 문자열로 반환.
         /// 본문이 없거나 읽기 오류 발생 시, 에러 응답을 생성하고 null 반환.
+        /// TODO
+        ///     - 이 부분은 추후 정확한 로직 공부 필요
         /// </summary>
         private async Task<string?> ExtractRequestBody(HttpContext context)
         {
@@ -123,6 +131,8 @@ namespace Test_3TierAPI.Middlewares
 
         /// <summary>
         /// 요청 데이터를 검증하고, 유효하지 않으면 에러 응답 반환.
+        /// API 요청을 받은 컨트롤러 또는 Endpoint의 메서드에서 RequireDataAttribute 값을 받아와서
+        /// Data가 필요한지 여부를 확인하여 검증.
         /// </summary>
         private bool ValidateRequestData(HttpContext context, RequestDTO<object> requestDto)
         {

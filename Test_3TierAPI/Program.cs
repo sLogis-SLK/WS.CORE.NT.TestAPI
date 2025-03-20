@@ -8,9 +8,9 @@ using Test_3TierAPI.Services.공통;
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
-
 builder.Services.AddControllers(options =>
 {
+    // Action Filter 추가
     options.Filters.Add<ApiResponseFilter>();
 });
 
@@ -30,6 +30,7 @@ builder.Services.AddHttpClient();
 builder.Services.AddSwaggerGen();
 builder.Services.AddMemoryCache();
 
+/// DI 등록
 // services
 builder.Services.AddScoped<FrmTRCOM00001Service>();
 
@@ -39,6 +40,7 @@ builder.Services.AddScoped<DatabaseTransactionManager>();
 
 // Repository
 builder.Services.AddScoped<TestRepository>();
+/// DI등록 끝
 
 var app = builder.Build();
 

@@ -19,15 +19,6 @@ namespace Test_3TierAPI.Services.공통
         public async Task<object> LooupBtn(RequestDTO<object> data)
         {
             DataTable table = await _testRepository.Test();
-            // 예제 데이터 (단일 객체)
-            //var responseData = new Dictionary<string, object>
-            //{
-            //    { "회원사코드", "1001" },
-            //    { "그룹코드", "A001" },
-            //    { "사용자명", "홍길동" },
-            //    { "권한", "관리자" }
-            //};
-
             return table;
         }
 

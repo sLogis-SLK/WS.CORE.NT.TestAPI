@@ -2,10 +2,17 @@
 
 namespace Test_3TierAPI.Models.API
 {
+    /// <summary>
+    /// MetaDTO
+    /// API 요청에 대한 메타 정보를 담는 DTO
+    /// 추후 Mac Address 등 추가 필요할지도
+    /// Release 환경에서는 MetaDTO는 함께 반환되지 않음
+    /// </summary>
     public class MetaDTO
     {
         public string? JobUUID { get; set; } // 작업 UUID
         public string? ExecutionTime { get; set; } // API 처리 시간 (ms)
+        public int TableCount { get; set; } // 응답 데이터 개수
         public DateTime? ServerTimeStamp { get; set; } // 응답 생성 시간 (UTC)
         public DateTime SWRequestTimestamp { get; set; } // 소프트웨어 요청 시각
         public string? RequestIP { get; set; } // 요청 IP 주소

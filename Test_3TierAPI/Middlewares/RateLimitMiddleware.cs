@@ -6,6 +6,11 @@ using Test_3TierAPI.Models.API;
 
 namespace Test_3TierAPI.Middlewares
 {
+    /// <summary>
+    /// RateLimitMiddleware
+    /// 같은 ip에 대해서 요청 제한을 두는 미들웨어
+    /// 추후 mac address 등으로 변경 가능 및 추가 관리 필요
+    /// </summary>
     public class RateLimitMiddleware
     {
         private readonly RequestDelegate _next;

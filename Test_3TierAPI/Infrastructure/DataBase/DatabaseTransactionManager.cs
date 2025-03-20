@@ -4,26 +4,32 @@ using System.Data.Common;
 using System.Threading.Tasks;
 using Microsoft.Data.SqlClient;
 using System.Collections.Generic;
-using static Azure.Core.HttpHeader;
+using System.Reflection;
 
 namespace Test_3TierAPI.Infrastructure.DataBase
 {
+    /// <summary>
+    /// 데이터베이스 트랜잭션 관리자 클래스
+    /// DI 관리와, 비동기 처리를 위해 DB 연결 및 트랜잭션 클래스를 새로 만듬
+    /// connection은 DI를 통해 Singleton으로 관리되는 DBConnectionFactory로부터 가져옴
+    /// </summary>
     public class DatabaseTransactionManager : IAsyncDisposable
     {
         private readonly DBConnectionFactory _connectionFactory;
         private DbConnection? _connection;
-        private DbTransaction? _transaction;
+        private DbTransaction? _transaction;    // Update 함수에서만 사용
         private bool _isCommitted;
-        private int _commandTimeout = 30; // 기본 타임아웃 (초 단위)
+        private int _commandTimeout;
 
         public DatabaseTransactionManager(DBConnectionFactory connectionFactory)
         {
-            _connectionFactory = connectionFactory ?? throw new ArgumentNullException(nameof(connectionFactory));
+            _connectionFactory = connectionFactory ?? throw new ArgumentNullException(nameof(connectionFactory));   // 어차피 DI 관리
+            _isCommitted = false;
+            _commandTimeout = 30;   // 기본 타임아웃 시간 (30초)
         }
 
         /// <summary>
-        /// CommandTimeout 설정 (초 단위)
-        /// 기본 값 : 30초
+        /// CommandTimeout 설정 (초) : 기본값 30초
         /// </summary>
         /// <param name="timeoutSeconds"></param>
         /// <exception cref="ArgumentException"></exception>
@@ -35,7 +41,8 @@ namespace Test_3TierAPI.Infrastructure.DataBase
         }
 
         /// <summary>
-        /// 비동기로 트랜잭션 시작
+        /// 비동기 트랜잭션 시작. 이미 트랜잭션이 열려있으면 예외 발생
+        /// Update() 함수 실행 전 필수 실행
         /// </summary>
         /// <param name="dbType"></param>
         /// <returns></returns>
@@ -61,42 +68,28 @@ namespace Test_3TierAPI.Infrastructure.DataBase
         }
 
         /// <summary>
-        /// 비동기로 쿼리 실행 후 결과 반환 (SELECT)
+        /// 비동기 단일 데이터 조회
         /// </summary>
         /// <typeparam name="T"></typeparam>
         /// <param name="dbType"></param>
         /// <param name="query"></param>
+        /// <param name="commandType"></param>
         /// <param name="parameters"></param>
         /// <returns></returns>
         /// <exception cref="Exception"></exception>
-        public async Task<T> ExecuteQueryAsync<T>(string dbType, string query, object parameters = null)
+        public async Task<T?> GetSingleDataAsync<T>(string dbType, string query, CommandType commandType, object parameters = null)
         {
+            EnsureParam(commandType, parameters);
+            
             try
             {
-                await using var connection = await _connectionFactory.GetConnectionAsync(dbType);
+                _connection = await _connectionFactory.GetConnectionAsync(dbType);
+                if (_connection.State != ConnectionState.Open)
+                    await _connection.OpenAsync();
 
-                if (connection.State != ConnectionState.Open)
-                    await connection.OpenAsync();
-
-                using var command = connection.CreateCommand();
-                command.CommandText = query;
-                command.CommandType = CommandType.Text;
-                command.CommandTimeout = _commandTimeout;
-
-                AddParameters(command, parameters);
-
-                if (typeof(T) == typeof(DataTable))
-                {
-                    var dataTable = new DataTable();
-                    await using var reader = await command.ExecuteReaderAsync();
-                    dataTable.Load(reader);
-                    return (T)(object)dataTable;
-                }
-                else
-                {
-                    var result = await command.ExecuteScalarAsync();
-                    return result == null || result == DBNull.Value ? default : (T)Convert.ChangeType(result, typeof(T));
-                }
+                using var command = await CreateCommandAsync(query, commandType, parameters, false);
+                object? result = await command.ExecuteScalarAsync();
+                return result == null || result == DBNull.Value ? default : (T)Convert.ChangeType(result, typeof(T));
             }
             catch (Exception ex)
             {
@@ -105,30 +98,27 @@ namespace Test_3TierAPI.Infrastructure.DataBase
         }
 
         /// <summary>
-        /// 비동기로 Stored Procedure 실행 후 DataTable 반환 (SELECT)
+        /// 비동기 데이터 테이블 조회
         /// </summary>
         /// <param name="dbType"></param>
-        /// <param name="storedProcedure"></param>
+        /// <param name="query"></param>
+        /// <param name="commandType"></param>
         /// <param name="parameters"></param>
         /// <returns></returns>
         /// <exception cref="Exception"></exception>
-        public async Task<DataTable> GetDataTableAsync(string dbType, string storedProcedure, object parameters = null)
+        public async Task<DataTable> GetDataTableAsync(string dbType, string query, CommandType commandType, object parameters = null)
         {
+            EnsureParam(commandType, parameters);
+
             try
             {
-                await using var connection = await _connectionFactory.GetConnectionAsync(dbType);
+                _connection = await _connectionFactory.GetConnectionAsync(dbType);
+                if (_connection.State != ConnectionState.Open)
+                    await _connection.OpenAsync();
 
-                if (connection.State != ConnectionState.Open)
-                    await connection.OpenAsync();
+                using var command = await CreateCommandAsync(query, commandType, parameters, false);
+                await using var reader = await command.ExecuteReaderAsync();
 
-                using var command = connection.CreateCommand();
-                command.CommandText = storedProcedure;
-                command.CommandType = CommandType.StoredProcedure;
-                command.CommandTimeout = _commandTimeout;
-
-                AddParameters(command, parameters);
-
-                using var reader = await command.ExecuteReaderAsync();
                 var dataTable = new DataTable();
                 dataTable.Load(reader);
 
@@ -136,67 +126,57 @@ namespace Test_3TierAPI.Infrastructure.DataBase
             }
             catch (Exception ex)
             {
-                throw new Exception($"Stored Procedure '{storedProcedure}' 실행 중 오류가 발생했습니다.", ex);
+                throw new Exception($"쿼리 실행 중 오류가 발생했습니다: {query}", ex);
             }
         }
 
         /// <summary>
-        /// 비동기로 Stored Procedure 실행 후 영향 받은 행 수 반환 (INSERT, UPDATE, DELETE)
-        /// Transaction을 활용하는 객체는 dbType을 BeginTransactionAsync()로 설정한 DB 타입으로 사용
-        /// 즉 함수 사용 전 꼭 BeginTransactionAsync()를 호출해야 함
+        /// 비동기 UPDATE, INSERT, DELETE 실행
+        /// Transaction 필요
+        /// BeginTransaction() 함수 실행 후 사용!!
         /// </summary>
-        /// <param name="storedProcedure"></param>
+        /// <param name="queryOrProcedure"></param>
+        /// <param name="commandType"></param>
         /// <param name="parameters"></param>
         /// <returns></returns>
-        /// <exception cref="InvalidOperationException"></exception>
         /// <exception cref="Exception"></exception>
-        public async Task<int> ExecuteNonQueryAsync(string storedProcedure, object parameters = null)
+        public async Task<int> ExecuteNonQueryAsync(string queryOrProcedure, CommandType commandType, object parameters = null)
         {
-            if (_transaction == null)
-                throw new InvalidOperationException("트랜잭션이 시작되지 않았습니다.");
+            EnsureTransaction();
+            EnsureParam(commandType, parameters);
 
             try
             {
-                using var command = _connection.CreateCommand();
-                command.Transaction = _transaction;
-                command.CommandText = storedProcedure;
-                command.CommandType = CommandType.StoredProcedure;
-                command.CommandTimeout = _commandTimeout;
-
-                AddParameters(command, parameters);
+                using var command = await CreateCommandAsync(queryOrProcedure, commandType, parameters, true);
                 return await command.ExecuteNonQueryAsync();
             }
             catch (Exception ex)
             {
-                throw new Exception($"Stored Procedure '{storedProcedure}' 실행 중 오류가 발생했습니다.", ex);
+                throw new Exception($"쿼리 실행 중 오류가 발생했습니다: {queryOrProcedure}", ex);
             }
         }
 
         /// <summary>
-        /// 비동기로 Stored Procedure 실행 후 Output Parameter 값을 반환 (OUTPUT)
-        /// transaction을 활용하는 객체는 dbType을 BeginTransactionAsync()로 설정한 DB 타입으로 사용
-        /// 즉 함수 사용 전 꼭 BeginTransactionAsync()를 호출해야 함
+        /// 비동기 UPDATE, INSERT, DELETE 실행 (Output Parameter 포함)
+        /// Transaction 필요
+        /// BeginTransaction() 함수 실행 후 사용!!
         /// </summary>
-        /// <param name="storedProcedure"></param>
+        /// <param name="queryOrProcedure"></param>
+        /// <param name="commandType"></param>
         /// <param name="parameters"></param>
         /// <param name="outputParamName"></param>
         /// <returns></returns>
-        /// <exception cref="InvalidOperationException"></exception>
         /// <exception cref="Exception"></exception>
-        public async Task<object> ExecuteWithOutputParamAsync(string storedProcedure, object parameters, string outputParamName)
+        public async Task<object?> ExecuteWithOutputParamAsync(string queryOrProcedure, CommandType commandType, object parameters, string outputParamName)
         {
-            if (_transaction == null)
-                throw new InvalidOperationException("트랜잭션이 시작되지 않았습니다.");
-
+            EnsureTransaction();
+            EnsureParam(commandType, parameters);
             try
             {
-                using var command = _connection.CreateCommand();
-                command.Transaction = _transaction;
-                command.CommandText = storedProcedure;
-                command.CommandType = CommandType.StoredProcedure;
-                command.CommandTimeout = _commandTimeout;
+                using var command = await CreateCommandAsync(queryOrProcedure, commandType, parameters, true);
 
-                AddParameters(command, parameters);
+                if (string.IsNullOrEmpty(outputParamName))
+                    throw new ArgumentException("Output Parameter 이름이 올바르지 않습니다.", nameof(outputParamName));
 
                 var outputParam = command.CreateParameter();
                 outputParam.ParameterName = outputParamName;
@@ -205,46 +185,17 @@ namespace Test_3TierAPI.Infrastructure.DataBase
                 command.Parameters.Add(outputParam);
 
                 await command.ExecuteNonQueryAsync();
-                return outputParam.Value;
+
+                return command.Parameters.Contains(outputParamName) ? command.Parameters[outputParamName].Value : DBNull.Value;
             }
             catch (Exception ex)
             {
-                throw new Exception($"Stored Procedure '{storedProcedure}' 실행 중 Output Parameter 처리 오류가 발생했습니다.", ex);
+                throw new Exception($"쿼리 실행 중 Output Parameter 처리 오류가 발생했습니다: {queryOrProcedure}", ex);
             }
         }
 
-        #region 비동기 아웃풋 반환 함수 사용 예제
-        // 위 비동기 아웃풋 반환 함수를 사용하는 예제
-        //public async Task<string> 온라인주문정보_상태처리_SetAsync(DataTable 연계대상데이터Table, string 작업구분)
-        //{
-        //    using var transactionManager = new DatabaseTransactionManager(_connectionFactory);
-
-        //    await transactionManager.BeginTransactionAsync("MSSQL"); // 트랜잭션 시작
-
-        //    var parameters = new Dictionary<string, object>
-        //        {
-        //            { "@전송대상데이터", 연계대상데이터Table },
-        //            { "@B코드", Common.PermitInfo.B코드 },
-        //            { "@센터코드", Common.PermitInfo.센터코드 },
-        //            { "@등록자", Common.PermitInfo.사원이름 },
-        //            { "@작업구분", 작업구분 },
-        //            { "@대상건수", 연계대상데이터Table.Rows.Count }
-        //        };
-
-        //    object result = await transactionManager.ExecuteWithOutputParamAsync(
-        //        "usp_SWE_온라인주문정보_상태처리_Set",
-        //        parameters,
-        //        "@작업로우수"
-        //    );
-
-        //    await transactionManager.CommitAsync(); // 트랜잭션 커밋
-
-        //    return result?.ToString();
-        //}
-        #endregion
-
         /// <summary>
-        /// 비동기로 트랜잭션 커밋
+        /// 비동기 트랜잭션 커밋
         /// </summary>
         /// <returns></returns>
         /// <exception cref="Exception"></exception>
@@ -267,7 +218,7 @@ namespace Test_3TierAPI.Infrastructure.DataBase
         }
 
         /// <summary>
-        /// 비동기로 트랜잭션 롤백
+        /// 비동기 트랜잭션 롤백
         /// </summary>
         /// <returns></returns>
         /// <exception cref="Exception"></exception>
@@ -289,7 +240,8 @@ namespace Test_3TierAPI.Infrastructure.DataBase
         }
 
         /// <summary>
-        /// 비동기로 리소스 정리
+        /// 비동기 리소스 정리
+        /// IAsyncDisposable에 의해 관리되므로, 명시적으로 사용할 필요 없음
         /// </summary>
         /// <returns></returns>
         /// <exception cref="Exception"></exception>
@@ -319,15 +271,22 @@ namespace Test_3TierAPI.Infrastructure.DataBase
             }
         }
 
+        /// <summary>
+        /// 익명 클래스 또는 Dictionary를 통해 받은 값을 프로시저에 맞게 파라미터로 변환
+        /// key: 파라미터명, value: 파라미터값
+        /// key에 자동으로 @를 붙여 파라미터로 사용
+        /// </summary>
+        /// <param name="command"></param>
+        /// <param name="parameters"></param>
         private static void AddParameters(DbCommand command, object parameters)
         {
             if (parameters == null) return;
 
             if (parameters is Dictionary<string, object> paramDict)
             {
-                foreach (var kvp in paramDict)
+                foreach (KeyValuePair<string, object> kvp in paramDict)
                 {
-                    var dbParam = command.CreateParameter();
+                    DbParameter dbParam = command.CreateParameter();
                     dbParam.ParameterName = "@" + kvp.Key;
                     dbParam.Value = kvp.Value ?? DBNull.Value;
                     command.Parameters.Add(dbParam);
@@ -335,14 +294,61 @@ namespace Test_3TierAPI.Infrastructure.DataBase
             }
             else
             {
-                foreach (var param in parameters.GetType().GetProperties())
+                foreach (PropertyInfo? param in parameters.GetType().GetProperties())
                 {
-                    var dbParam = command.CreateParameter();
+                    DbParameter dbParam = command.CreateParameter();
                     dbParam.ParameterName = "@" + param.Name;
                     dbParam.Value = param.GetValue(parameters) ?? DBNull.Value;
                     command.Parameters.Add(dbParam);
                 }
             }
+        }
+
+        /// <summary>
+        /// Command 객체 생성
+        /// </summary>
+        /// <param name="queryOrProcedure"></param>
+        /// <param name="commandType"></param>
+        /// <param name="parameters"></param>
+        /// <param name="useTransaction"></param>
+        /// <returns></returns>
+        private async Task<DbCommand> CreateCommandAsync(string queryOrProcedure, CommandType commandType, object parameters, bool useTransaction)
+        {
+            var command = _connection?.CreateCommand();
+            command.CommandText = queryOrProcedure;
+            command.CommandType = commandType;
+            command.CommandTimeout = _commandTimeout;
+
+            if (useTransaction)
+            {
+                EnsureTransaction();
+                command.Transaction = _transaction;
+            }
+
+            AddParameters(command, parameters);
+            return command;
+        }
+
+        /// <summary>
+        /// Update 함수 실행 전 트랜잭션이 열려있는지 확인 없으면 예외 발생
+        /// </summary>
+        /// <exception cref="InvalidOperationException"></exception>
+        private void EnsureTransaction()
+        {
+            if (_transaction == null)
+                throw new InvalidOperationException("트랜잭션이 시작되지 않았습니다.");
+        }
+
+        /// <summary>
+        /// Command Type이 Procedure일 때, 파라미터가 없으면 예외 발생
+        /// </summary>
+        /// <param name="commandType"></param>
+        /// <param name="parameters"></param>
+        /// <exception cref="Exception"></exception>
+        private void EnsureParam(CommandType commandType, object parameters)
+        {
+            if (commandType == CommandType.StoredProcedure && parameters == null)
+                throw new Exception("저장 프로시저는 파라미터가 필요합니다.");
         }
     }
 }

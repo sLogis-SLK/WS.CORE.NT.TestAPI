@@ -4,6 +4,13 @@ using Test_3TierAPI.Models.API;
 
 namespace Test_3TierAPI.Middlewares
 {
+    /// <summary>
+    /// ExceptionHandlingMiddleware
+    /// 모든 API 요청에 대한 예외 처리를 담당하는 미들웨어
+    /// Controller에서 수행되는 모든 동작들의 예외는 모두 이 미들웨어에서 처리됨
+    /// 예외처리와 동시에 각 예외에 맞는 적절한 상태값을 포함한
+    /// ResponseDTO를 생성하고 반환 및 로그 저장
+    /// </summary>
     public class ExceptionHandlingMiddleware
     {
         private readonly RequestDelegate _next;
@@ -17,6 +24,11 @@ namespace Test_3TierAPI.Middlewares
             _env = env;
         }
 
+        /// <summary>
+        /// Middleware 실행 메서드
+        /// </summary>
+        /// <param name="context"></param>
+        /// <returns></returns>
         public async Task Invoke(HttpContext context)
         {
             // JobUUID 및 MetaDTO 초기화 (항상 새로 생성)
@@ -45,7 +57,7 @@ namespace Test_3TierAPI.Middlewares
             {
                 await _next(context);
             }
-            catch (Exception ex)
+            catch (Exception ex)    // 모든 예외처리는 이 Exception에서 마무리
             {
                 // 실행 시간 측정 완료
                 stopwatch.Stop();
@@ -83,7 +95,7 @@ namespace Test_3TierAPI.Middlewares
                     Meta = meta // 로그 저장을 위해 모든 정보를 포함
                 };
 
-                MiddlewareHelper.SaveLogToFile(_logger, errorResponseDTO, errorResponseDTO.Success);
+                await MiddlewareHelper.SaveLogToFileAsync(_logger, errorResponseDTO, errorResponseDTO.Success);
                 
                 // 개발 환경 여부에 따른 Respone 가공
                 if(!bIsDev)

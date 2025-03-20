@@ -6,6 +6,10 @@ using Microsoft.Data.SqlClient;
 
 namespace Test_3TierAPI.Infrastructure.DataBase
 {
+    /// <summary>
+    /// DB Connection을 생성하는 Factory 클래스
+    /// DI를 통해 Singleton으로 사용
+    /// </summary>
     public class DBConnectionFactory
     {
         private readonly IConfiguration _configuration;

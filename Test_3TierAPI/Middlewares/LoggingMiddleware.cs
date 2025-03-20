@@ -5,6 +5,9 @@ using Test_3TierAPI.Models.API;
 
 namespace Test_3TierAPI.Middlewares
 {
+    /// <summary>
+    /// API 요청 성공시 이곳에서 로그 관리 및 저장
+    /// </summary>
     public class LoggingMiddleware
     {
         private readonly RequestDelegate _next;
@@ -24,7 +27,7 @@ namespace Test_3TierAPI.Middlewares
             context.Items.TryGetValue("ResponseDTO", out var responseObj);
             if (responseObj is ResponseDTO<object> responseDto)
             {
-                MiddlewareHelper.SaveLogToFile(_logger, responseDto, responseDto.Success);
+                await MiddlewareHelper.SaveLogToFileAsync(_logger, responseDto, responseDto.Success);
             }
         }
     }
