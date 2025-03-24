@@ -93,12 +93,12 @@ namespace Test_3TierAPI.Middlewares
 
                 await MiddlewareHelper.SaveLogToFileAsync(_logger, errorResponseDTO, false, innerEx);
                 
-                // 개발 환경 여부에 따른 Respone 가공
-                if(!bIsDev)
-                {
-                    errorResponseDTO.Message = "An unexpected error occured.";
-                    errorResponseDTO.Meta = null;   // 운영환경이 아니면 metaDTO 제거
-                }
+                //// 개발 환경 여부에 따른 Respone 가공
+                //if(!bIsDev)
+                //{
+                //    errorResponseDTO.Message = "An unexpected error occured.";
+                //    errorResponseDTO.Meta = null;   // 운영환경이 아니면 metaDTO 제거
+                //}
 
                 context.Response.ContentType = "application/json";
                 await context.Response.WriteAsJsonAsync(errorResponseDTO);

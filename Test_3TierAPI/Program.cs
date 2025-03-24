@@ -1,8 +1,10 @@
 using Newtonsoft.Json;
+using System.Net;
 using Test_3TierAPI.ActionFilters;
 using Test_3TierAPI.Infrastructure.DataBase;
 using Test_3TierAPI.Middlewares;
 using Test_3TierAPI.Repositories;
+using Test_3TierAPI.Services;
 using Test_3TierAPI.Services.공통;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -37,6 +39,7 @@ builder.Services.AddMemoryCache();
 /// DI 등록
 // services
 builder.Services.AddScoped<FrmTRCOM00001Service>();
+builder.Services.AddScoped<DataService>();
 
 // infra
 builder.Services.AddSingleton<DBConnectionFactory>();
@@ -44,6 +47,16 @@ builder.Services.AddScoped<DatabaseTransactionManager>();
 
 // Repository
 builder.Services.AddScoped<TestRepository>();
+builder.Services.AddScoped<DataRepository>();
+
+// kestrel에 포트 바인딩 명시
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.Listen(IPAddress.Any, 7080, listenOptions =>
+    {
+        listenOptions.UseHttps(); // https 바인딩, 필요 시 UseHttp()로 변경
+    });
+});
 /// DI등록 끝
 
 var app = builder.Build();
@@ -76,7 +89,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
+// app.UseHttpsRedirection();
 
 app.UseAuthorization();
 

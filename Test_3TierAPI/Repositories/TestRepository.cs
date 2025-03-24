@@ -1,6 +1,7 @@
 ﻿using Microsoft.VisualBasic;
 using System.Data;
 using Test_3TierAPI.Infrastructure.DataBase;
+using Test_3TierAPI.Models.API;
 
 namespace Test_3TierAPI.Repositories
 {
@@ -43,28 +44,33 @@ namespace Test_3TierAPI.Repositories
             string query = @"
                 SELECT *
                 FROM 온라인_주문마스터 가 WITH (NOLOCK)
-                WHERE 가.등록일시 BETWEEN '20250317' AND '20250318' AND ";
+                WHERE 가.등록일시 BETWEEN '20250317' AND '20250318' AND B코드 = 'SH'";
             
             DataTable response = await _dbManager.GetDataTableAsync("02", query, CommandType.Text);
             return response;
         }
 
-        public async Task<DataTable> GetProcedureTest()
+        public async Task<DataTable> GetProcedureTest(RequestDTO<object> request)
         {
-            string procedureName = "usp_온라인_반품처리_물류용_Get";
-            // string procedureName = "usp_온라인_반품처리_물류_Get"; // 에러 발생을 위한 변수
-            object param = new
-            {
-                B코드 = "SH",
-                조회시작일 = "20250317",
-                조회종료일 = "20250318",
-                상태구분 = "%",
-                승인요청여부 = "%",
-                승인수신여부 = "%",
-                조회구분자 = 0
-            };
+            //string procedureName = "usp_온라인_반품처리_물류용_Get";
+            //// string procedureName = "usp_온라인_반품처리_물류_Get"; // 에러 발생을 위한 변수
+            //object param = new
+            //{
+            //    B코드 = "SH",
+            //    조회시작일 = "20250317",
+            //    조회종료일 = "20250318",
+            //    상태구분 = "%",
+            //    승인요청여부 = "%",
+            //    승인수신여부 = "%",
+            //    조회구분자 = 0
+            //};
 
-            DataTable response = await _dbManager.GetDataTableAsync("02", procedureName, CommandType.StoredProcedure, param);
+            // if (request == null) throw new ArgumentNullException(nameof(request));
+            Console.WriteLine($"Data Type: {request.Data?.GetType().FullName}");
+
+            object param = request.Data;
+
+            DataTable response = await _dbManager.GetDataTableAsync("02", request.ProcedureName, CommandType.StoredProcedure, param);
             return response;
         }
     }

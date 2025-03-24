@@ -240,9 +240,12 @@ namespace Test_3TierAPI.Middlewares
         }
 
         /// <summary>
-        /// 필드 유효성 검증 수행 및 모든 오류 수집
-        /// isRequired=false인 어트리뷰트는 해당 필드가 존재하지 않을 경우 검증을 건너뜀
+        /// 주어진 JSON 객체를 검증하고 오류 메시지 목록을 반환합니다.
+        /// 필수 필드 존재 여부 및 각 필드의 유효성 검사를 수행합니다.
         /// </summary>
+        /// <param name="dataObj">검증할 JSON 객체</param>
+        /// <param name="fieldValidators">필드별 유효성 검증 속성 목록</param>
+        /// <returns>오류 메시지 목록</returns>
         private List<string> ValidateFields(JToken? dataObj, Dictionary<string, List<IFieldValidAttribute>> fieldValidators)
         {
             var errors = new List<string>();
@@ -267,20 +270,8 @@ namespace Test_3TierAPI.Middlewares
                     continue; // 필드 자체가 없으므로 이후 검증 불필요
                 }
 
-                // 형변환 없이 JToken에서 직접 SelectToken() 사용
-                JToken? fieldValue = dataObj.SelectToken(fieldName);
-
-                // 만약 fieldValue가 null이면 JSON 전체에서 해당 필드명 검색 (Descendants 사용)
-                if (fieldValue == null)
-                {
-                    // SelectTokens를 사용하여 모든 속성을 검색
-                    var properties = dataObj.SelectTokens("$..*")
-                        .OfType<JProperty>()
-                        .Where(p => string.Equals(p.Name, fieldName, StringComparison.OrdinalIgnoreCase));
-
-                    // 일치하는 첫 번째 속성의 값 가져오기
-                    fieldValue = properties.FirstOrDefault()?.Value;
-                }
+                // 개선된 재귀 검색 함수를 사용하여 필드 검색
+                JToken? fieldValue = FindFieldInJson(dataObj, fieldName);
 
                 if (fieldValue == null || fieldValue.Type == JTokenType.Null)
                 {
@@ -303,12 +294,6 @@ namespace Test_3TierAPI.Middlewares
                     valueObj = fieldValue.ToObject<object>();
                 }
 
-
-                // 필드 값 가져오기
-                valueObj = fieldValue.Type == JTokenType.String
-                    ? fieldValue.ToString()
-                    : fieldValue.ToObject<object>();
-
                 // 필드 값 검증
                 foreach (var attr in attributeList)
                 {
@@ -329,7 +314,7 @@ namespace Test_3TierAPI.Middlewares
         /// <param name="jsonToken">검색할 JSON 객체</param>
         /// <param name="fieldName">찾을 필드 이름</param>
         /// <returns>찾은 필드의 값, 없으면 null</returns>
-        public static JToken? FindFieldInJson(JToken jsonToken, string fieldName)
+        private JToken? FindFieldInJson(JToken jsonToken, string fieldName)
         {
             // 먼저 직접 SelectToken으로 시도
             JToken? fieldValue = jsonToken.SelectToken(fieldName);
@@ -350,7 +335,7 @@ namespace Test_3TierAPI.Middlewares
         /// <param name="token">검색할 JSON 토큰</param>
         /// <param name="propName">찾을 속성 이름</param>
         /// <returns>찾은 속성의 값, 없으면 null</returns>
-        private static JToken? FindPropertyRecursively(JToken token, string propName)
+        private JToken? FindPropertyRecursively(JToken token, string propName)
         {
             // 현재 토큰이 JProperty이고 이름이 일치하는 경우
             if (token is JProperty prop &&

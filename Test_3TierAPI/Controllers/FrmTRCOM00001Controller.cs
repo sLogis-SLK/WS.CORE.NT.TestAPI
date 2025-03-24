@@ -32,6 +32,8 @@ namespace Test_3TierAPI.Controllers
         [FieldEqual("B코드", targetValue:"JS")]
         [FieldRequire("age")]
         [FieldLength("ProductId", isRequired: false)]
+        [RemoveField("ProductId")]
+        [SkipFieldValid]
         public async Task<IActionResult> LooupBtn([FromBody] RequestDTO<object> data)
         {
             var response = await _frmTRCOM00001Service.LooupBtn(data);
@@ -43,6 +45,7 @@ namespace Test_3TierAPI.Controllers
 
         [HttpPost("looupBtn2")] // 얘는 컨트롤러에서 요구한 필드와 제약조건 모두가 다 필요함
         [FieldRange("B코드", minValue:3, maxValue:10)]    // 컨트롤러의 제약조건을 모두 통과하고 또 object안에 b코드가 3~10자리여야함
+        [SkipFieldValid]
         public async Task<IActionResult> LooupBtn2([FromBody] RequestDTO<object> data)
         {
             var response = await _frmTRCOM00001Service.LooupBtn2(data);
@@ -55,9 +58,10 @@ namespace Test_3TierAPI.Controllers
         [HttpPost("getProcedureTest")]
         
         [FieldEqual("B코드", targetValue: "JS")]    // object안에 b코드가 JS여야함,
-        public async Task<IActionResult> GetProcedureTest([FromBody] RequestDTO<object> data)
+        [SkipFieldValid]
+        public async Task<IActionResult> GetProcedureTest([FromBody] RequestDTO<object> requestDto)
         {
-            var response = await _frmTRCOM00001Service.GetProcedureTest(data);
+            var response = await _frmTRCOM00001Service.GetProcedureTest(requestDto);
             // controller단에서는 그저 DB 조회결과만 반환,
             // ResponseDTO 생성은 ApiResponseFilter에서 처리
             return Ok(response);

@@ -5,6 +5,10 @@ using System.Threading.Tasks;
 using Microsoft.Data.SqlClient;
 using System.Collections.Generic;
 using System.Reflection;
+using Newtonsoft.Json.Linq;
+using Newtonsoft.Json;
+using System.Collections;
+using Azure.Core;
 
 namespace Test_3TierAPI.Infrastructure.DataBase
 {
@@ -278,30 +282,235 @@ namespace Test_3TierAPI.Infrastructure.DataBase
         /// </summary>
         /// <param name="command"></param>
         /// <param name="parameters"></param>
+        //private static void AddParameters(DbCommand command, object parameters)
+        //{
+        //    if (parameters == null) return;
+
+        //    if (parameters is Dictionary<string, object> paramDict)
+        //    {
+        //        foreach (KeyValuePair<string, object> kvp in paramDict)
+        //        {
+        //            DbParameter dbParam = command.CreateParameter();
+        //            dbParam.ParameterName = "@" + kvp.Key;
+        //            dbParam.Value = kvp.Value ?? DBNull.Value;
+        //            command.Parameters.Add(dbParam);
+        //        }
+        //    }
+        //    else
+        //    {
+        //        foreach (PropertyInfo? param in parameters.GetType().GetProperties())
+        //        {
+        //            DbParameter dbParam = command.CreateParameter();
+        //            dbParam.ParameterName = "@" + param.Name;
+        //            dbParam.Value = param.GetValue(parameters) ?? DBNull.Value;
+        //            command.Parameters.Add(dbParam);
+        //        }
+        //    }
+        //}
+
+        //private static void AddParameters(DbCommand command, object parameters)
+        //{
+        //    if (parameters == null) return;
+
+        //    // JObject 타입 처리 추가
+        //    if (parameters is JObject jo)
+        //    {
+        //        foreach (var property in jo.Properties())
+        //        {
+        //            DbParameter dbParam = command.CreateParameter();
+        //            dbParam.ParameterName = "@" + property.Name;
+        //            dbParam.Value = property.Value.ToObject<object>() ?? DBNull.Value;
+        //            command.Parameters.Add(dbParam);
+        //        }
+        //        return; // JObject 처리 후 종료
+        //    }
+
+        //    // Dictionary<string, object> 타입 체크
+        //    if (parameters is Dictionary<string, object> paramDict)
+        //    {
+        //        foreach (KeyValuePair<string, object> kvp in paramDict)
+        //        {
+        //            DbParameter dbParam = command.CreateParameter();
+        //            dbParam.ParameterName = "@" + kvp.Key;
+        //            dbParam.Value = kvp.Value ?? DBNull.Value;
+        //            command.Parameters.Add(dbParam);
+        //        }
+        //    }
+        //    // IDictionary 인터페이스를 구현한 경우
+        //    else if (parameters is IDictionary dictionary)
+        //    {
+        //        foreach (DictionaryEntry entry in dictionary)
+        //        {
+        //            DbParameter dbParam = command.CreateParameter();
+        //            dbParam.ParameterName = "@" + entry.Key.ToString();
+        //            dbParam.Value = entry.Value ?? DBNull.Value;
+        //            command.Parameters.Add(dbParam);
+        //        }
+        //    }
+        //    // dynamic 접근 시도
+        //    else
+        //    {
+        //        try
+        //        {
+        //            // dynamic으로 변환하여 처리 시도
+        //            dynamic dynamicParams = parameters;
+        //            JObject jObject = JObject.FromObject(dynamicParams);
+
+        //            foreach (var property in jObject.Properties())
+        //            {
+        //                DbParameter dbParam = command.CreateParameter();
+        //                dbParam.ParameterName = "@" + property.Name;
+        //                dbParam.Value = property.Value.ToObject<object>() ?? DBNull.Value;
+        //                command.Parameters.Add(dbParam);
+        //            }
+        //            return; // dynamic 처리 성공하면 여기서 종료
+        //        }
+        //        catch (Exception ex)
+        //        {
+        //            // dynamic 접근 실패 시 JSON 변환 시도
+        //            try
+        //            {
+        //                string json = JsonConvert.SerializeObject(parameters);
+        //                var convertedDict = JsonConvert.DeserializeObject<Dictionary<string, object>>(json);
+
+        //                if (convertedDict != null)
+        //                {
+        //                    foreach (KeyValuePair<string, object> kvp in convertedDict)
+        //                    {
+        //                        DbParameter dbParam = command.CreateParameter();
+        //                        dbParam.ParameterName = "@" + kvp.Key;
+        //                        dbParam.Value = kvp.Value ?? DBNull.Value;
+        //                        command.Parameters.Add(dbParam);
+        //                    }
+        //                    return; // JSON 변환 성공하면 여기서 종료
+        //                }
+        //            }
+        //            catch
+        //            {
+        //                // JSON 변환도 실패하면 리플렉션으로 폴백
+        //            }
+
+        //            // 기존 리플렉션 방식으로 폴백
+        //            foreach (PropertyInfo? prop in parameters.GetType().GetProperties())
+        //            {
+        //                // 시스템 내부 속성이나 컬렉션 타입은 건너뛰기
+        //                if (prop.PropertyType.Namespace?.StartsWith("System.Collections") == true)
+        //                    continue;
+
+        //                DbParameter dbParam = command.CreateParameter();
+        //                dbParam.ParameterName = "@" + prop.Name;
+        //                dbParam.Value = prop.GetValue(parameters) ?? DBNull.Value;
+        //                command.Parameters.Add(dbParam);
+        //            }
+        //        }
+        //    }
+        //}
         private static void AddParameters(DbCommand command, object parameters)
         {
             if (parameters == null) return;
 
+            // JObject 타입 처리
+            if (parameters is JObject jObject)
+            {
+                AddParametersFromJObject(command, jObject);
+                return;
+            }
+
+            // Dictionary<string, object> 타입 처리
             if (parameters is Dictionary<string, object> paramDict)
             {
-                foreach (KeyValuePair<string, object> kvp in paramDict)
-                {
-                    DbParameter dbParam = command.CreateParameter();
-                    dbParam.ParameterName = "@" + kvp.Key;
-                    dbParam.Value = kvp.Value ?? DBNull.Value;
-                    command.Parameters.Add(dbParam);
-                }
+                AddParametersFromDictionary(command, paramDict);
+                return;
             }
-            else
+
+            // IDictionary 인터페이스 처리
+            if (parameters is IDictionary dictionary)
             {
-                foreach (PropertyInfo? param in parameters.GetType().GetProperties())
+                AddParametersFromIDictionary(command, dictionary);
+                return;
+            }
+
+            // 위 타입들이 아닌 경우, 다양한 변환 시도
+            try
+            {
+                // dynamic으로 처리 시도
+                dynamic dynamicParams = parameters;
+                JObject jObj = JObject.FromObject(dynamicParams);
+                AddParametersFromJObject(command, jObj);
+            }
+            catch
+            {
+                try
                 {
-                    DbParameter dbParam = command.CreateParameter();
-                    dbParam.ParameterName = "@" + param.Name;
-                    dbParam.Value = param.GetValue(parameters) ?? DBNull.Value;
-                    command.Parameters.Add(dbParam);
+                    // JSON 직렬화/역직렬화를 통한 변환 시도
+                    string json = JsonConvert.SerializeObject(parameters);
+                    var convertedDict = JsonConvert.DeserializeObject<Dictionary<string, object>>(json);
+
+                    if (convertedDict != null)
+                    {
+                        AddParametersFromDictionary(command, convertedDict);
+                    }
+                    else
+                    {
+                        // 모든 변환 실패 시 리플렉션 사용
+                        AddParametersUsingReflection(command, parameters);
+                    }
+                }
+                catch
+                {
+                    // JSON 변환 실패 시 리플렉션 사용
+                    AddParametersUsingReflection(command, parameters);
                 }
             }
+        }
+
+        // JObject에서 파라미터 추가
+        private static void AddParametersFromJObject(DbCommand command, JObject jObject)
+        {
+            foreach (var property in jObject.Properties())
+            {
+                AddParameter(command, property.Name, property.Value.ToObject<object>());
+            }
+        }
+
+        // Dictionary에서 파라미터 추가
+        private static void AddParametersFromDictionary(DbCommand command, Dictionary<string, object> paramDict)
+        {
+            foreach (var kvp in paramDict)
+            {
+                AddParameter(command, kvp.Key, kvp.Value);
+            }
+        }
+
+        // IDictionary에서 파라미터 추가
+        private static void AddParametersFromIDictionary(DbCommand command, IDictionary dictionary)
+        {
+            foreach (DictionaryEntry entry in dictionary)
+            {
+                AddParameter(command, entry.Key.ToString(), entry.Value);
+            }
+        }
+
+        // 리플렉션을 사용하여 파라미터 추가
+        private static void AddParametersUsingReflection(DbCommand command, object parameters)
+        {
+            foreach (PropertyInfo prop in parameters.GetType().GetProperties())
+            {
+                // 시스템 내부 속성이나 컬렉션 타입은 건너뛰기
+                if (prop.PropertyType.Namespace?.StartsWith("System.Collections") == true)
+                    continue;
+
+                AddParameter(command, prop.Name, prop.GetValue(parameters));
+            }
+        }
+
+        // 단일 파라미터 추가 헬퍼 메서드
+        private static void AddParameter(DbCommand command, string name, object value)
+        {
+            DbParameter dbParam = command.CreateParameter();
+            dbParam.ParameterName = "@" + name;
+            dbParam.Value = value ?? DBNull.Value;
+            command.Parameters.Add(dbParam);
         }
 
         /// <summary>
@@ -324,6 +533,8 @@ namespace Test_3TierAPI.Infrastructure.DataBase
                 EnsureTransaction();
                 command.Transaction = _transaction;
             }
+
+            Console.WriteLine($"Data Type: {parameters?.GetType().FullName}");
 
             AddParameters(command, parameters);
             return command;

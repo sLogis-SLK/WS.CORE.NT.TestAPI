@@ -31,7 +31,7 @@ namespace Test_3TierAPI.Services.공통
 
         public async Task<object> GetProcedureTest(RequestDTO<object> data)
         {
-            DataTable table = await _testRepository.GetProcedureTest();
+            DataTable table = await _testRepository.GetProcedureTest(data);
             return table;
         }
     }
