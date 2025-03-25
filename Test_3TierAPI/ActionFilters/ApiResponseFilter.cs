@@ -98,18 +98,18 @@ namespace Test_3TierAPI.ActionFilters
             // 5️. ResponseDTO를 HttpContext.Items에 저장 (로깅 미들웨어에서 사용)
             context.HttpContext.Items["ResponseDTO"] = response;
 
-            // 6️. 운영 환경에서는 MetaDTO를 숨김
-            if (!_env.IsDevelopment())
-            {
-                response.Meta = null;
-            }
-
-            // 7. 성공시 로그 저장
+            // 6. 성공시 로그 저장
             Task logTask = MiddlewareHelper.SaveLogToFileAsync(_logger, response, true);
             
             logTask.Wait(); // 로그 저장 완료까지 대기
 
-            // 7️. 최종 응답을 ObjectResult로 변경
+            //// 67. 운영 환경에서는 MetaDTO를 숨김
+            //if (!_env.IsDevelopment())
+            //{
+            //    response.Meta = null;
+            //}
+
+            // 8. 최종 응답을 ObjectResult로 변경
             context.Result = new ObjectResult(response);    // 응답 response를 깊은 복사함. 그래서 로깅 미들웨어에서 Data를 null로 만들어도 문제가 없음
         }
     }

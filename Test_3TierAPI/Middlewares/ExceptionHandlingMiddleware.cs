@@ -56,6 +56,8 @@ namespace Test_3TierAPI.Middlewares
             try
             {
                 await _next(context);
+
+
             }
             catch (Exception ex)    // 모든 예외처리는 이 Exception에서 마무리
             {

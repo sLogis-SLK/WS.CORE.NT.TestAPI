@@ -146,35 +146,105 @@ namespace Test_3TierAPI.Helpers
             await File.AppendAllTextAsync(filePath, content);
         }
 
+        ///// <summary>
+        ///// URL에서 엔드포인트 이름을 추출
+        ///// </summary>
+        //private static string ExtractEndpoint(string? url)
+        //{
+        //    if (string.IsNullOrEmpty(url))
+        //    {
+        //        return "unknown-endpoint";
+        //    }
+
+        //    // URL에서 마지막 경로 부분을 추출 (/api/controller/action -> action)
+        //    string[] parts = url.TrimEnd('/').Split('/');
+        //    string endpoint = parts.Length > 0 ? parts[^1] : "unknown-endpoint";
+
+        //    // 쿼리 문자열 제거
+        //    int queryIndex = endpoint.IndexOf('?');
+        //    if (queryIndex > 0)
+        //    {
+        //        endpoint = endpoint.Substring(0, queryIndex);
+        //    }
+
+        //    // 컨트롤러 이름을 접두어로 추가
+        //    if (parts.Length > 1)
+        //    {
+        //        string controller = parts[^2];
+        //        return $"{controller}_{endpoint}";
+        //    }
+
+        //    return endpoint;
+        //}
+
+
+        
         /// <summary>
-        /// URL에서 엔드포인트 이름을 추출
+        /// URL 문자열에서 의미 있는 엔드포인트 식별자를 추출합니다.
         /// </summary>
+        /// <param name="url">처리할 URL 문자열</param>
+        /// <returns>식별된 엔드포인트 문자열(형식: "controller_action" 또는 특수 케이스)</returns>
         private static string ExtractEndpoint(string? url)
         {
+            // 입력이 null이거나 빈 문자열인 경우 처리
             if (string.IsNullOrEmpty(url))
             {
-                return "unknown-endpoint";
+                return "empty-endpoint";
             }
 
-            // URL에서 마지막 경로 부분을 추출 (/api/controller/action -> action)
-            string[] parts = url.TrimEnd('/').Split('/');
-            string endpoint = parts.Length > 0 ? parts[^1] : "unknown-endpoint";
+            // 루트 경로("/") 또는 공백만 있는 경우 처리
+            url = url.Trim();
+            if (url == "/" || url == string.Empty)
+            {
+                return "root-endpoint";
+            }
+
+            // URL 정규화 및 분석 준비
+            string normalizedUrl = url.TrimEnd('/');
 
             // 쿼리 문자열 제거
-            int queryIndex = endpoint.IndexOf('?');
-            if (queryIndex > 0)
+            int queryIndex = normalizedUrl.IndexOf('?');
+            if (queryIndex >= 0)
             {
-                endpoint = endpoint.Substring(0, queryIndex);
+                normalizedUrl = normalizedUrl.Substring(0, queryIndex);
             }
 
-            // 컨트롤러 이름을 접두어로 추가
-            if (parts.Length > 1)
+            // 경로 구성요소 분리
+            string[] parts = normalizedUrl.Split('/', StringSplitOptions.RemoveEmptyEntries);
+
+            // 경로 구성요소가 없는 경우 처리 (예: "/", "//", "/?query=value")
+            if (parts.Length == 0)
             {
-                string controller = parts[^2];
-                return $"{controller}_{endpoint}";
+                return "root-endpoint";
             }
 
-            return endpoint;
+            // 구성요소가 1개인 경우 (예: "/controller")
+            if (parts.Length == 1)
+            {
+                return $"{parts[0]}_index";
+            }
+
+            // 일반적인 경우: 컨트롤러와 액션 결합 (예: "/controller/action")
+            string controller = parts[parts.Length - 2];
+            string action = parts[parts.Length - 1];
+
+            // 특수 문자 제거 및 안전한 식별자 생성
+            controller = CleanIdentifier(controller);
+            action = CleanIdentifier(action);
+
+            return $"{controller}_{action}";
+        }
+
+        /// <summary>
+        /// 문자열에서 엔드포인트 식별자로 사용하기에 적합하지 않은 특수 문자를 제거합니다.
+        /// </summary>
+        /// <param name="input">정리할 식별자 문자열</param>
+        /// <returns>정리된 식별자 문자열</returns>
+        private static string CleanIdentifier(string input)
+        {
+            // 허용되지 않는 문자를 대시로 대체
+            string pattern = @"[^a-zA-Z0-9_-]";
+            return System.Text.RegularExpressions.Regex.Replace(input, pattern, "-");
         }
 
         /// <summary>
