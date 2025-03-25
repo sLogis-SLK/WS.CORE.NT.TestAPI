@@ -2,6 +2,7 @@
 using Microsoft.AspNetCore.Mvc.Filters;
 using System.Data;
 using System.Diagnostics;
+using Test_3TierAPI.Helpers;
 using Test_3TierAPI.Models.API;
 
 namespace Test_3TierAPI.ActionFilters
@@ -55,6 +56,13 @@ namespace Test_3TierAPI.ActionFilters
                 };
             }
 
+            // ProcedureName 가져오기
+            if (!context.HttpContext.Items.TryGetValue("ProcedureName", out var procNameObj) || procNameObj is not string procName)
+            {
+                _logger.LogWarning("[ApiResponseFilter] ProcedureName is missing in HttpContext.Items. Setting to 'N/A'.");
+                procName = "N/A";
+            }
+
             // 최종 실행시간 체크
             meta.ExecutionTime = $"{stopwatch.ElapsedMilliseconds}ms";
 
@@ -78,6 +86,7 @@ namespace Test_3TierAPI.ActionFilters
                 Success = true,
                 Message = "요청이 정상적으로 처리되었습니다.",
                 Data = responseData,
+                ProcedureName = procName,
                 TableCount = 0,
                 Meta = meta
             };
@@ -94,6 +103,11 @@ namespace Test_3TierAPI.ActionFilters
             {
                 response.Meta = null;
             }
+
+            // 7. 성공시 로그 저장
+            Task logTask = MiddlewareHelper.SaveLogToFileAsync(_logger, response, true);
+            
+            logTask.Wait(); // 로그 저장 완료까지 대기
 
             // 7️. 최종 응답을 ObjectResult로 변경
             context.Result = new ObjectResult(response);    // 응답 response를 깊은 복사함. 그래서 로깅 미들웨어에서 Data를 null로 만들어도 문제가 없음

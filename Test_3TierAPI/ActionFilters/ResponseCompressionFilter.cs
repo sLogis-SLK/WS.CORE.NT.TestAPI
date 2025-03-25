@@ -55,11 +55,13 @@ namespace Test_3TierAPI.ActionFilters
 
                 // 테이블 행 수와 압축률 로깅
                 int rowCount = dataTable.Rows.Count;
+
                 double compressionRatio = ((double)compressedData.Length / dataJson.Length * 100.0);
+
                 _logger.LogInformation(
-                    "Data compression applied: {RowCount} rows, Compression ratio: {CompressionRatio:F2}%, " +
+                    "Data compression applied: {PN} {RowCount} rows, Compression ratio: {CompressionRatio:F2}%, " +
                     "Original size: {OriginalSize} bytes, Compressed size: {CompressedSize} bytes",
-                    rowCount, compressionRatio, dataJson.Length, compressedData.Length);
+                    responseDto.ProcedureName, rowCount, compressionRatio, dataJson.Length, compressedData.Length);
             }
             catch (Exception ex)
             {

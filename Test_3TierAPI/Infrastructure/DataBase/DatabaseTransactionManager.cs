@@ -534,8 +534,6 @@ namespace Test_3TierAPI.Infrastructure.DataBase
                 command.Transaction = _transaction;
             }
 
-            Console.WriteLine($"Data Type: {parameters?.GetType().FullName}");
-
             AddParameters(command, parameters);
             return command;
         }

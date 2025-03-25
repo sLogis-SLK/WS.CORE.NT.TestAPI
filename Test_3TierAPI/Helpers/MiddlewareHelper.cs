@@ -11,54 +11,61 @@ namespace Test_3TierAPI.Helpers
     public static class MiddlewareHelper
     {
         /// <summary>
-        /// 로그를 날짜별 폴더 및 엔드포인트별 파일로 저장
+        /// 로그를 엔드포인트별 폴더 및 날짜별 파일로 저장
         /// </summary>
         /// <param name="logger">로거</param>
         /// <param name="responseDTO">응답 DTO</param>
         /// <param name="bIsSuccess">성공 여부</param>
         /// <param name="exception">예외 객체(선택적)</param>
         public static async Task SaveLogToFileAsync(
-            ILogger logger, 
-            ResponseDTO<object> responseDTO, 
-            bool bIsSuccess, 
+            ILogger logger,
+            ResponseDTO<object> responseDTO,
+            bool bIsSuccess,
             Exception? exception = null)
         {
             try
             {
-                // 1. 로그 디렉토리 구조 생성
-                string baseLogDirectory = @"C:\APILogs";
-                string dateFolder = DateTime.Now.ToString("yyyy-MM-dd");
-                string logDirectory = Path.Combine(baseLogDirectory, dateFolder);
-                
-                // 2. 엔드포인트 추출
+                // 1. 엔드포인트 추출
                 string endpoint = ExtractEndpoint(responseDTO.Meta?.RequestURL);
-                string logFileName = $"{endpoint}.log";
-                string logFilePath = Path.Combine(logDirectory, logFileName);
+
+                // 2. 로그 디렉토리 구조 생성 (엔드포인트별 폴더)
+                string baseLogDirectory = @"C:\APILogs";
+                string endpointFolder = endpoint;
+                string endpointDirectory = Path.Combine(baseLogDirectory, endpointFolder);
+
+                // 3. 날짜 기반 파일명 생성
+                string dateString = DateTime.Now.ToString("yyyy-MM-dd");
+                string logFileName = $"{dateString}.log";
+                string logFilePath = Path.Combine(endpointDirectory, logFileName);
+
                 
-                // 3. 로그 폴더가 없으면 생성
-                if (!Directory.Exists(logDirectory))
+
+                // 4. 로그 폴더가 없으면 생성
+                if (!Directory.Exists(endpointDirectory))
                 {
-                    Directory.CreateDirectory(logDirectory);
+                    Directory.CreateDirectory(endpointDirectory);
                 }
-                
-                // 4. 로그 내용 생성
+
+                // 5. 로그 내용 생성
                 StringBuilder logBuilder = new StringBuilder();
                 logBuilder.AppendLine($"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] [{(bIsSuccess ? "INFO" : "ERROR")}] [UUID:{responseDTO.JobUUID}]");
-                
+
                 // 메타 정보 추가
                 if (responseDTO.Meta != null)
                 {
                     logBuilder.AppendLine($"Requester: {responseDTO.Meta.Requester ?? "N/A"}");
                     logBuilder.AppendLine($"Request URL: {responseDTO.Meta.RequestURL ?? "N/A"}");
                     logBuilder.AppendLine($"Request IP: {responseDTO.Meta.RequestIP ?? "N/A"}");
+                    logBuilder.AppendLine($"Procedure Name: {responseDTO.Meta.Procedurename ?? "N/A"}");
+                    logBuilder.AppendLine($"Row Count: {responseDTO.Meta.TableCount.ToString() ?? "N/A"}");
                     logBuilder.AppendLine($"Execution Time: {responseDTO.Meta.ExecutionTime ?? "N/A"}");
-                    
+
                     if (!string.IsNullOrEmpty(responseDTO.Meta.ErrorDetail))
                     {
                         logBuilder.AppendLine($"Error Detail: {responseDTO.Meta.ErrorDetail}");
                     }
                 }
-                
+
                 // 예외 정보 추가
                 if (exception != null)
                 {
@@ -66,32 +73,36 @@ namespace Test_3TierAPI.Helpers
                     logBuilder.AppendLine($"Exception Message: {exception.Message}");
                     logBuilder.AppendLine($"Stack Trace: {exception.StackTrace}");
                 }
-                
-                // 응답 정보 추가 (Data 부분은 제외)
-                var logResponseDto = new ResponseDTO<object>
+
+                // Deep Copy를 통해 ResponseDTO 복제 (Data 필드만 제외)
+                // JSON 변환 후 다시 역직렬화하여 깊은 복사 수행
+                string json = JsonConvert.SerializeObject(responseDTO);
+                var logResponseDto = JsonConvert.DeserializeObject<ResponseDTO<object>>(json);
+
+                // Data 필드만 대체
+                logResponseDto.Data = "[데이터 필드 생략]";
+
+                // JSON 직렬화 설정 (보기 좋게 포맷팅)
+                var jsonSettings = new JsonSerializerSettings
                 {
-                    JobUUID = responseDTO.JobUUID,
-                    Success = responseDTO.Success,
-                    StatusCode = responseDTO.StatusCode,
-                    Message = responseDTO.Message,
-                    TableCount = responseDTO.TableCount,
-                    Meta = null // 이미 위에서 중요 메타 정보는 추출했으므로 제외
+                    Formatting = Formatting.Indented,
+                    NullValueHandling = NullValueHandling.Include
                 };
-                
-                logBuilder.AppendLine($"Response: {JsonConvert.SerializeObject(logResponseDto)}");
+
+                logBuilder.AppendLine($"Response DTO: {JsonConvert.SerializeObject(logResponseDto, jsonSettings)}");
                 logBuilder.AppendLine(new string('-', 80)); // 구분선 추가
-                
-                // 5. 파일에 로그 저장 (파일 쓰기 동시성 제어는 운영체제에 맡김)
-                await File.AppendAllTextAsync(logFilePath, logBuilder.ToString());
-                
-                // 6. 로거에도 기록
+
+                // 6. 파일에 로그 저장 (파일 쓰기 동시성 제어)
+                await WriteToFileWithRetryAsync(logFilePath, logBuilder.ToString());
+
+                // 7. 로거에도 기록
                 if (bIsSuccess)
                 {
-                    logger.LogInformation($"[API:{endpoint}] Job:{responseDTO.JobUUID} completed successfully");
+                    logger.LogInformation($"[API:{endpoint}] Job:{responseDTO.JobUUID} Time:{responseDTO.Meta.ExecutionTime} P.N:{responseDTO.ProcedureName} R.C:{responseDTO.TableCount} completed successfully");
                 }
                 else
                 {
-                    logger.LogError($"[API:{endpoint}] Job:{responseDTO.JobUUID} failed: {responseDTO.Message}");
+                    logger.LogError($"[API:{endpoint}] Job:{responseDTO.JobUUID} Time:{responseDTO.Meta.ExecutionTime} P.N:{responseDTO.ProcedureName} failed: {responseDTO.Message}");
                 }
             }
             catch (Exception ex)
@@ -99,6 +110,40 @@ namespace Test_3TierAPI.Helpers
                 // 로그 저장 실패 시 로거에만 기록 (에러 전파 방지)
                 logger.LogError(ex, "Failed to save log file");
             }
+        }
+
+        /// <summary>
+        /// 파일에 로그를 쓰는 메소드 (재시도 로직 포함)
+        /// </summary>
+        /// <param name="filePath">파일 경로</param>
+        /// <param name="content">쓸 내용</param>
+        private static async Task WriteToFileWithRetryAsync(string filePath, string content)
+        {
+            const int maxRetries = 3;
+            const int retryDelayMs = 100;
+
+            for (int attempt = 1; attempt <= maxRetries; attempt++)
+            {
+                try
+                {
+                    // 파일 락 충돌을 방지하기 위한 FileShare 옵션 사용
+                    using (FileStream fs = new FileStream(filePath, FileMode.Append, FileAccess.Write, FileShare.Read))
+                    using (StreamWriter writer = new StreamWriter(fs, Encoding.UTF8))
+                    {
+                        await writer.WriteAsync(content);
+                        await writer.FlushAsync();
+                        return; // 성공적으로 쓰기 완료
+                    }
+                }
+                catch (IOException) when (attempt < maxRetries)
+                {
+                    // 다른 프로세스가 파일을 사용 중일 수 있으므로 잠시 대기 후 재시도
+                    await Task.Delay(retryDelayMs * attempt);
+                }
+            }
+
+            // 최대 재시도 횟수를 초과한 경우 마지막 시도
+            await File.AppendAllTextAsync(filePath, content);
         }
 
         /// <summary>
@@ -132,7 +177,9 @@ namespace Test_3TierAPI.Helpers
             return endpoint;
         }
 
-        // MiddlewareHelper.cs 파일에 추가
+        /// <summary>
+        /// 예외 유형에 따른 HTTP 상태 코드 반환
+        /// </summary>
         public static int GetStatusCode(Exception ex)
         {
             return ex switch

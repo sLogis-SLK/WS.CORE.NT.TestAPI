@@ -66,6 +66,9 @@ namespace Test_3TierAPI.Middlewares
                 context.Items.TryGetValue("MetaDTO", out var metaObj);
                 meta = metaObj as MetaDTO ?? meta;
 
+                context.Items.TryGetValue("ProcedureName", out var procNameObj);
+                var procName = procNameObj as string;
+
                 // 가장 처음의 예외 가져오기
                 Exception innerEx = GetInnermostException(ex);
 
@@ -80,6 +83,7 @@ namespace Test_3TierAPI.Middlewares
                 string errorMessage = $"Unhandled Error: {innerEx.Message}";
                 // meta에는 StackTrace까지 저장
                 meta.ErrorDetail = errorMessage + "\n" + innerEx.StackTrace;
+                meta.Procedurename = procName;
 
                 // `ResponseDTO` 객체를 먼저 생성 (모든 정보 포함)
                 var errorResponseDTO = new ResponseDTO<object>
@@ -87,6 +91,7 @@ namespace Test_3TierAPI.Middlewares
                     JobUUID = meta.JobUUID,
                     Success = false,
                     StatusCode = statusCode,
+                    ProcedureName = procName,
                     Message = errorMessage,
                     Meta = meta // 로그 저장을 위해 모든 정보를 포함
                 };

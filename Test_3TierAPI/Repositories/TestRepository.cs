@@ -66,11 +66,7 @@ namespace Test_3TierAPI.Repositories
             //};
 
             // if (request == null) throw new ArgumentNullException(nameof(request));
-            Console.WriteLine($"Data Type: {request.Data?.GetType().FullName}");
-
-            object param = request.Data;
-
-            DataTable response = await _dbManager.GetDataTableAsync("02", request.ProcedureName, CommandType.StoredProcedure, param);
+            DataTable response = await _dbManager.GetDataTableAsync("02", request.ProcedureName, CommandType.StoredProcedure, request.Data);
             return response;
         }
     }

@@ -11,6 +11,7 @@
         public string? JobUUID { get; set; } // 작업 UUID
         public bool Success { get; set; } // 성공 여부
         public int StatusCode { get; set; } // HTTP 상태 코드
+        public string? ProcedureName { get; set; } // 프로시저 이름
         public string? Message { get; set; } // 응답 메시지
         public T? Data { get; set; } // 응답 데이터
         public int TableCount { get; set; } // 응답 데이터 개수

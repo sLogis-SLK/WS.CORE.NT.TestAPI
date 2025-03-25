@@ -184,6 +184,7 @@ namespace Test_3TierAPI.Middlewares
         {
             meta.Requester = requestDto.Requester;
             meta.SWRequestTimestamp = requestDto.RequestTimestamp;
+            context.Items["ProcedureName"] = meta.Procedurename = requestDto.ProcedureName;
             context.Items["MetaDTO"] = meta;
         }
 

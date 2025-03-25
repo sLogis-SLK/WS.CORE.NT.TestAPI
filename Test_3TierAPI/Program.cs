@@ -76,8 +76,8 @@ app.UseMiddleware<RequestValidationMiddleware>();
 // 4. RequestDTO의 Data의 디테일한 필드값에 대한 Valid 체크 하는 미들웨어
 app.UseMiddleware<FieldValidationMiddleware>();
 
-// 5. API 로그 기록 (로그 관리 개선된 미들웨어)
-app.UseMiddleware<LoggingMiddleware>();
+//// 5. API 로그 기록 (로그 관리 개선된 미들웨어)
+//app.UseMiddleware<LoggingMiddleware>();
 
 //// 6. 성능 모니터링 : 사용 안함. action filter로 대체
 //app.UseMiddleware<PerformanceMonitoringMiddleware>();

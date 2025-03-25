@@ -12,6 +12,7 @@ namespace Test_3TierAPI.Models.API
     {
         public string? JobUUID { get; set; } // 작업 UUID
         public string? ExecutionTime { get; set; } // API 처리 시간 (ms)
+        public string? Procedurename { get; set; } // 프로시저 이름
         public int TableCount { get; set; } // 응답 데이터 개수
         public DateTime? ServerTimeStamp { get; set; } // 응답 생성 시간 (UTC)
         public DateTime SWRequestTimestamp { get; set; } // 소프트웨어 요청 시각
