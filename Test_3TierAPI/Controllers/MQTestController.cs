@@ -346,6 +346,7 @@ namespace Test_3TierAPI.Controllers
             }
         }
 
+        [HttpPost("b2coutorderreq")]
         public async Task<IActionResult> B2cOutOrderBulk([FromBody] string message)
         {
             // HttpClient를 using으로 관리하여 적절한 리소스 해제 보장
@@ -372,6 +373,57 @@ namespace Test_3TierAPI.Controllers
                 // HttpClient 호출 시 예외 처리 추가
                 //HttpResponseMessage response = await httpClient.PostAsync("/api/orchestration/test/onlineorderbulk", jsonContent);
                 HttpResponseMessage response = await httpClient.PostAsync("/api/orchestration/b2coutorder/b2coutorderreqbulk", jsonContent);      // Hangfire에서 호출하는 API
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogWarning($"API Gateway returned error status: {response.StatusCode}");
+                }
+
+                string result = await response.Content.ReadAsStringAsync();
+                return Ok(result);
+            }
+            catch (HttpRequestException httpEx)
+            {
+                _logger.LogError(httpEx, "HTTP request failed in TestAPIGateway");
+                return StatusCode(502, "External API communication failed");
+            }
+            catch (TaskCanceledException timeoutEx)
+            {
+                _logger.LogError(timeoutEx, "Request timeout in TestAPIGateway");
+                return StatusCode(408, "Request timeout");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error occurred in TestAPIGateway");
+                return StatusCode(500, "Internal server error");
+            }
+        }
+
+        [HttpPost("productsreqbulk")]
+        public async Task<IActionResult> ProductsReqBulk([FromBody] string message)
+        {
+            // HttpClient를 using으로 관리하여 적절한 리소스 해제 보장
+            using var httpClient = _httpClientFactory.CreateClient("TestAPIGateway");
+
+            try
+            {
+                string filePath = "C:\\Users\\User\\OneDrive - (주)에스엘케이\\TECH팀 - General\\99. 기타\\풀필먼트 벤치마킹\\테스트 자료\\ProductsReqJson.txt";
+
+                List<ProductsReqList_NT> orderList = ProductsJsonConverter.LoadAndConvert(filePath);
+
+                //var dto = new DTO_APIGateway<List<Model_Online_Order_Master>>
+                //{
+                //    RequestId = Guid.NewGuid().ToString(),
+                //    TimeAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
+                //    _requestData = orderList
+                //};
+
+                string jsonData = JsonConvert.SerializeObject(orderList);
+                var jsonContent = new StringContent(jsonData, Encoding.UTF8, "application/json");
+
+                // HttpClient 호출 시 예외 처리 추가
+                //HttpResponseMessage response = await httpClient.PostAsync("/api/orchestration/test/onlineorderbulk", jsonContent);
+                HttpResponseMessage response = await httpClient.PostAsync("/api/orchestration/productsreq/productsreqbulk", jsonContent);      // Hangfire에서 호출하는 API
 
                 if (!response.IsSuccessStatusCode)
                 {
