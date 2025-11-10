@@ -1,4 +1,5 @@
-﻿using System.Text.Json;
+﻿using System;
+using System.Text.Json;
 
 namespace SLK.NT.Common.Model
 {
@@ -25,13 +26,16 @@ namespace SLK.NT.Common.Model
             if (productsReq?.data == null)
                 return new List<ProductsReqList_NT>();
 
+            var random = new Random();
+            var docNo = string.Concat(Enumerable.Range(0, 20).Select(_ => random.Next(0, 10)));
+
             // ProductsReqList -> ProductsReqList_NT 변환
             var result = new List<ProductsReqList_NT>();
             foreach (var item in productsReq.data)
             {
                 result.Add(new ProductsReqList_NT
                 {
-                    docNo = productsReq.docNo,
+                    docNo = docNo,
                     bCode = productsReq.bCode,
                     totalCount = productsReq.totalCount,
                     sendCount = productsReq.sendCount,
