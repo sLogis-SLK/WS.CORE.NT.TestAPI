@@ -9,12 +9,22 @@
     }
   },
   "profiles": {
-    "MyApiProject": {
+    "http": {
       "commandName": "Project",
       "dotnetRunMessages": true,
       "launchBrowser": true,
       "launchUrl": "swagger",
-      "applicationUrl": "https://0.0.0.0:7080",
+      "applicationUrl": "http://localhost:7080",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      }
+    },
+    "https": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "launchBrowser": true,
+      "launchUrl": "swagger",
+      "applicationUrl": "https://localhost:7081",
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development"
       }

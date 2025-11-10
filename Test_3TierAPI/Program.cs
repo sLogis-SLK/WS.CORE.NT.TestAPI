@@ -1,31 +1,40 @@
-using Newtonsoft.Json;
+ï»¿using Newtonsoft.Json;
 using System.Net;
 using Test_3TierAPI.ActionFilters;
 using Test_3TierAPI.Infrastructure.DataBase;
 using Test_3TierAPI.Middlewares;
 using Test_3TierAPI.Repositories;
 using Test_3TierAPI.Services;
-using Test_3TierAPI.Services.°øÅë;
+using Test_3TierAPI.Services.ê³µí†µ;
+using MassTransit;
+
+using Test_3TierAPI.MassTransit.MQMessage;
+using MassTransit.Transports.Fabric;
+using MQ_Message;
+using SLK.Orchestration.API.Extensions;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-builder.Services.AddControllers(options =>
-{
-    // ÇÊÅÍ ¼ø¼­´Â OnActionExecuted ¸Ş¼­µåÀÇ °æ¿ì µî·ÏÀÇ ¿ª¼øÀ¸·Î ½ÇÇàµÊ - ÄÁÆ®·Ñ·¯ ½ÇÇà ÀÌÈÄ¿¡ ÀÛµ¿ÇÏ´Â ÇÔ¼ö
-    // ¾Æ·¡ ¼ø¼­·Î µî·ÏÇÏ¸é:
-    // - OnActionExecuting: ApiResponseFilter ¡æ ResponseCompressionFilter
-    // - OnActionExecuted: ResponseCompressionFilter ¡æ ApiResponseFilter
-    options.Filters.Add<ResponseCompressionFilter>();   // µÎ ¹øÂ° ½ÇÇà
-    options.Filters.Add<ApiResponseFilter>();           // Ã¹ ¹øÂ° ½ÇÇà
-});
+// ë‹¤ë¥¸ ipì—ì„œ ì ‘ê·¼ í—ˆìš©
+builder.WebHost.UseUrls("http://0.0.0.0:7080");
 
-// Newtonsoft.JsonÀ» ±âº» Á÷·ÄÈ­ ¶óÀÌºê·¯¸®·Î ÁöÁ¤
-// DataTable °´Ã¼¸¦ ÀÚµ¿À¸·Î Á÷·ÄÈ­ ÇÒ ¼ö ÀÖµµ·Ï ÇÏ±â À§ÇÔ
+//// Add services to the container.
+//builder.Services.AddControllers(options =>
+//{
+//    // í•„í„° ìˆœì„œëŠ” OnActionExecuted ë©”ì„œë“œì˜ ê²½ìš° ë“±ë¡ì˜ ì—­ìˆœìœ¼ë¡œ ì‹¤í–‰ë¨ - ì»¨íŠ¸ë¡¤ëŸ¬ ì‹¤í–‰ ì´í›„ì— ì‘ë™í•˜ëŠ” í•¨ìˆ˜
+//    // ì•„ë˜ ìˆœì„œë¡œ ë“±ë¡í•˜ë©´:
+//    // - OnActionExecuting: ApiResponseFilter â†’ ResponseCompressionFilter
+//    // - OnActionExecuted: ResponseCompressionFilter â†’ ApiResponseFilter
+//    options.Filters.Add<ResponseCompressionFilter>();   // ë‘ ë²ˆì§¸ ì‹¤í–‰
+//    options.Filters.Add<ApiResponseFilter>();           // ì²« ë²ˆì§¸ ì‹¤í–‰
+//});
+
+// Newtonsoft.Jsonì„ ê¸°ë³¸ ì§ë ¬í™” ë¼ì´ë¸ŒëŸ¬ë¦¬ë¡œ ì§€ì •
+// DataTable ê°ì²´ë¥¼ ìë™ìœ¼ë¡œ ì§ë ¬í™” í•  ìˆ˜ ìˆë„ë¡ í•˜ê¸° ìœ„í•¨
 builder.Services.AddControllers()
     .AddNewtonsoftJson(options =>
     {
-        // DataTable Á÷·ÄÈ­ °¡´ÉÇÏµµ·Ï ¼³Á¤
+        // DataTable ì§ë ¬í™” ê°€ëŠ¥í•˜ë„ë¡ ì„¤ì •
         options.SerializerSettings.ReferenceLoopHandling = ReferenceLoopHandling.Ignore;
         options.SerializerSettings.Formatting = Formatting.Indented;
     });
@@ -36,7 +45,7 @@ builder.Services.AddHttpClient();
 builder.Services.AddSwaggerGen();
 builder.Services.AddMemoryCache();
 
-/// DI µî·Ï
+/// DI ë“±ë¡
 // services
 builder.Services.AddScoped<FrmTRCOM00001Service>();
 builder.Services.AddScoped<DataService>();
@@ -49,37 +58,118 @@ builder.Services.AddScoped<DatabaseTransactionManager>();
 builder.Services.AddScoped<TestRepository>();
 builder.Services.AddScoped<DataRepository>();
 
-// kestrel¿¡ Æ÷Æ® ¹ÙÀÎµù ¸í½Ã
+// kestrelì— í¬íŠ¸ ë°”ì¸ë”© ëª…ì‹œ
 builder.WebHost.ConfigureKestrel(options =>
 {
-    options.Listen(IPAddress.Any, 7080, listenOptions =>
-    {
-        listenOptions.UseHttps(); // https ¹ÙÀÎµù, ÇÊ¿ä ½Ã UseHttp()·Î º¯°æ
-    });
+    options.Listen(IPAddress.Any, 7080); // HTTP ë°”ì¸ë”©
 });
-/// DIµî·Ï ³¡
+/// DIë“±ë¡ ë
+
+//builder.Services.AddMassTransit(x =>
+//{
+//    // Consumer ë“±ë¡ + Retry ì •ì±… ì„¤ì •
+//    x.AddConsumer<MQTestConsumer>(cfg =>
+//    {
+//        cfg.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5))); // 3íšŒ ì¬ì‹œë„, 5ì´ˆ ê°„ê²©
+//    });
+
+//    x.AddConsumer<Message_MQ_ContainerConsumer>(cfg =>
+//    {
+//        cfg.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
+//    });
+
+//    x.UsingRabbitMq((context, cfg) =>
+//    {
+//        cfg.Host("rabbitmq://localhost", h =>
+//        {
+//            h.Username("masstransit_user");
+//            h.Password("its0622");
+//        });
+
+//        // ë©”ì‹œì§€ íƒ€ì…ì— ëŒ€í•œ Publishìš© Exchange ì´ë¦„ ì§€ì •
+//        cfg.Message<MQTest>(m =>
+//        {
+//            m.SetEntityName("slk.exchange.mqtest");
+//        });
+
+//        cfg.Message<Message_MQ_Container>(m =>
+//        {
+//            m.SetEntityName("slk.exchange.onlineordertest");
+//        });
+
+//        // MQTestConsumerìš© Queue ì„¤ì •
+//        cfg.ReceiveEndpoint("slk.queue.mqtest", e =>
+//        {
+//            e.ConfigureConsumeTopology = false;
+
+//            // ìš°ì„ ìˆœìœ„ í ì„¤ì •
+//            e.SetQueueArgument("x-max-priority", 100);
+
+//            // ë™ê¸° ì²˜ë¦¬ ì„¤ì • (ìš°ì„ ìˆœìœ„ ì •í™•íˆ ë³´ì¥)
+//            e.PrefetchCount = 1;
+//            e.ConcurrentMessageLimit = 1;
+
+//            // fanout Exchange ë°”ì¸ë”©
+//            e.Bind("slk.exchange.mqtest", x =>
+//            {
+//                x.ExchangeType = "fanout";
+//            });
+
+//            e.ConfigureConsumer<MQTestConsumer>(context);
+//        });
+
+//        // OnlineOrderTestConsumerìš© Queue ì„¤ì •
+//        cfg.ReceiveEndpoint("slk.queue.onlineordertest", e =>
+//        {
+//            e.ConfigureConsumeTopology = false;
+
+//            e.SetQueueArgument("x-max-priority", 100);
+
+//            e.PrefetchCount = 1;
+//            e.ConcurrentMessageLimit = 1;
+
+//            e.Bind("slk.exchange.onlineordertest", x =>
+//            {
+//                x.ExchangeType = "fanout";
+//            });
+
+//            e.ConfigureConsumer<Message_MQ_ContainerConsumer>(context);
+//        });
+//    });
+//});
+
+// MassTransit ìë™í™” ì‚¬ìš©
+builder.Services.AddStandardMassTransit(builder.Configuration);
+
+// HttpClientFactory ì„¤ì •
+builder.Services.AddHttpClient("TestAPIGateway", client =>
+{
+    client.BaseAddress = new Uri("http://localhost:6999"); // ì‹¤ì œ API ì£¼ì†Œë¡œ ë³€ê²½
+    client.Timeout = TimeSpan.FromSeconds(120);
+});
+
 
 var app = builder.Build();
 
-// ¹Ìµé¿ş¾î ¼ø¼­
-// 0. ÃßÈÄ, ÀÎÁõ ¹× ±ÇÇÑ ºÎ¿© ¹Ìµé¿ş¾î Ãß°¡ ¿¹Á¤
+// ë¯¸ë“¤ì›¨ì–´ ìˆœì„œ
+// 0. ì¶”í›„, ì¸ì¦ ë° ê¶Œí•œ ë¶€ì—¬ ë¯¸ë“¤ì›¨ì–´ ì¶”ê°€ ì˜ˆì •
 
-// 1. ¿¹¿Ü Ã³¸® ¹× ÃÊ±â Items »ı¼º ¹Ìµé¿ş¾î
-app.UseMiddleware<ExceptionHandlingMiddleware>();
+//// 1. ì˜ˆì™¸ ì²˜ë¦¬ ë° ì´ˆê¸° Items ìƒì„± ë¯¸ë“¤ì›¨ì–´
+//app.UseMiddleware<ExceptionHandlingMiddleware>();
 
-// 2. ¿äÃ» Á¦ÇÑ °Ë»ç (¿äÃ» ÃÊ°ú ½Ã Â÷´Ü)
-app.UseMiddleware<RateLimitMiddleware>();
+//// 2. ìš”ì²­ ì œí•œ ê²€ì‚¬ (ìš”ì²­ ì´ˆê³¼ ì‹œ ì°¨ë‹¨)
+//app.UseMiddleware<RateLimitMiddleware>();
 
-// 3. ¿äÃ» µ¥ÀÌÅÍ À¯È¿¼º °Ë»ç
-app.UseMiddleware<RequestValidationMiddleware>();
+//// 3. ìš”ì²­ ë°ì´í„° ìœ íš¨ì„± ê²€ì‚¬
+//app.UseMiddleware<RequestValidationMiddleware>();
 
-// 4. RequestDTOÀÇ DataÀÇ µğÅ×ÀÏÇÑ ÇÊµå°ª¿¡ ´ëÇÑ Valid Ã¼Å© ÇÏ´Â ¹Ìµé¿ş¾î
-app.UseMiddleware<FieldValidationMiddleware>();
+//// 4. RequestDTOì˜ Dataì˜ ë””í…Œì¼í•œ í•„ë“œê°’ì— ëŒ€í•œ Valid ì²´í¬ í•˜ëŠ” ë¯¸ë“¤ì›¨ì–´
+//app.UseMiddleware<FieldValidationMiddleware>();
 
-//// 5. API ·Î±× ±â·Ï (·Î±× °ü¸® °³¼±µÈ ¹Ìµé¿ş¾î)
+//// 5. API ë¡œê·¸ ê¸°ë¡ (ë¡œê·¸ ê´€ë¦¬ ê°œì„ ëœ ë¯¸ë“¤ì›¨ì–´)
 //app.UseMiddleware<LoggingMiddleware>();
 
-//// 6. ¼º´É ¸ğ´ÏÅÍ¸µ : »ç¿ë ¾ÈÇÔ. action filter·Î ´ëÃ¼
+//// 6. ì„±ëŠ¥ ëª¨ë‹ˆí„°ë§ : ì‚¬ìš© ì•ˆí•¨. action filterë¡œ ëŒ€ì²´
 //app.UseMiddleware<PerformanceMonitoringMiddleware>();
 
 // Configure the HTTP request pipeline.
