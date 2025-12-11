@@ -144,12 +144,15 @@ builder.Services.AddStandardMassTransit(builder.Configuration);
 // HttpClientFactory 설정
 builder.Services.AddHttpClient("TestAPIGateway", client =>
 {
-    client.BaseAddress = new Uri("http://localhost:6999"); // 실제 API 주소로 변경
+    //client.BaseAddress = new Uri("http://172.16.32.83:6999"); // 실제 API 주소로 변경
+    client.BaseAddress = new Uri("http://172.16.32.50:6999");      // 본인 ip로 변경
     client.Timeout = TimeSpan.FromSeconds(120);
 });
 
 
 var app = builder.Build();
+
+app.UseStaticFiles();
 
 // 미들웨어 순서
 // 0. 추후, 인증 및 권한 부여 미들웨어 추가 예정
@@ -176,7 +179,15 @@ var app = builder.Build();
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
-    app.UseSwaggerUI();
+    app.UseSwaggerUI(c =>
+    {
+        c.SwaggerEndpoint("/swagger/v1/swagger.json", "SLK NT Orchestration API");
+
+        c.InjectJavascript("https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/7.0.5/signalr.min.js");
+
+        // ↓↓↓ 여기가 핵심!!
+        c.InjectJavascript("/swagger/custom-signalr.js");
+    });
 }
 
 // app.UseHttpsRedirection();

@@ -29,5 +29,9 @@
     <Folder Include="MassTransit\ConsumerService\" />
     <Folder Include="Services\DataTransfer\" />
   </ItemGroup>
+	
+  <ItemGroup>
+    <None Include="wwwroot\swagger\custom-signalr.js" />
+  </ItemGroup>
 
 </Project>
