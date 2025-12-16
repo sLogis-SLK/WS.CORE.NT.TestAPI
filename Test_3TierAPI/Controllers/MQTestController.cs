@@ -566,7 +566,7 @@ namespace Test_3TierAPI.Controllers
         {
             using var client = _httpClientFactory.CreateClient("TestAPIGateway");
 
-            var requestUri = "/api/orchestration/api/ntauth/login";
+            var requestUri = "/api/orchestration/api/ntauth/token";
 
             var payload = new
             {
@@ -585,7 +585,7 @@ namespace Test_3TierAPI.Controllers
                 return StatusCode((int)response.StatusCode, body);
             }
 
-            var loginResponse = JsonConvert.DeserializeObject<NTLoginResponse>(body);
+            var loginResponse = JsonConvert.DeserializeObject<NTTokenResponse>(body);
 
             if (loginResponse == null || string.IsNullOrWhiteSpace(loginResponse.AccessToken))
             {
@@ -594,19 +594,7 @@ namespace Test_3TierAPI.Controllers
                     "Invalid login response from Auth API");
             }
 
-            return Ok(new
-            {
-                accessToken = loginResponse.AccessToken,
-                tokenType = "Bearer",
-                expiresAtUtc = loginResponse.ExpiresAtUtc,
-                user = new
-                {
-                    id = loginResponse.UserId,
-                    userName = loginResponse.UserName,
-                    roles = loginResponse.Roles,
-                    permissions = loginResponse.Permissions
-                }
-            });
+            return Ok(loginResponse);
         }
 
 
