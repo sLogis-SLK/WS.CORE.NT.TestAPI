@@ -1,21 +1,16 @@
-﻿using Azure;
-using MassTransit;
+﻿using MassTransit;
 using Microsoft.AspNetCore.Mvc;
-using MQ_Message;
 using Newtonsoft.Json;
-using SLK_Model;
 using System.Data;
-using System.Net.Http.Json;
-using System.Net.Http;
 using System.Text;
 using Test_3TierAPI.CustomAttribute;
 using Test_3TierAPI.Helpers;
 using Test_3TierAPI.Infrastructure.DataBase;
 using Test_3TierAPI.MassTransit.MQMessage;
-using Test_3TierAPI.Repositories;
-using Test_3TierAPI.Services;
 using SLK.NT.Common.Model;
-using System.Web;
+using Test_3TierAPI.Models.NTLogin;
+using System.IdentityModel.Tokens.Jwt;
+using Microsoft.AspNetCore.Authorization;
 
 namespace Test_3TierAPI.Controllers
 {
@@ -181,6 +176,10 @@ namespace Test_3TierAPI.Controllers
                 //    _requestData = orderList
                 //};
 
+                // 토큰 확인용 로그
+                var authHeader = HttpContext.Request.Headers["Authorization"].FirstOrDefault();
+                _logger.LogInformation("Current auth header: {Auth}", authHeader?[..30] ?? "NONE");
+
                 string jsonData = JsonConvert.SerializeObject(orderList);
                 var jsonContent = new StringContent(jsonData, Encoding.UTF8, "application/json");
 
@@ -222,7 +221,7 @@ namespace Test_3TierAPI.Controllers
             try
             {
                 //int randomNumber = new Random().Next(1, 1000) * 10; // 1부터 9999까지의 랜덤 숫자 생성
-                int randomNumber = 10;
+                int randomNumber = 20;
 
                 string query = $@"
                             SELECT TOP({randomNumber}) *
@@ -282,7 +281,7 @@ namespace Test_3TierAPI.Controllers
             try
             {
                 //int randomNumber = new Random().Next(1, 1000) * 10; // 1부터 9999까지의 랜덤 숫자 생성
-                int randomNumber = 500;
+                int randomNumber = 1000;
 
                 string query = $@"
                             SELECT TOP({randomNumber}) *
@@ -561,5 +560,114 @@ namespace Test_3TierAPI.Controllers
         //    }
         //}
 
+        [HttpPost("login-test")]
+        [AllowAnonymous]
+        public async Task<IActionResult> NTLoginTest([FromBody] NTLoginTestRequest request)
+        {
+            using var client = _httpClientFactory.CreateClient("TestAPIGateway");
+
+            var requestUri = "/api/orchestration/api/ntauth/login";
+
+            var payload = new
+            {
+                userName = request.UserName,
+                password = request.Password
+            };
+
+            var json = JsonConvert.SerializeObject(payload);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            using var response = await client.PostAsync(requestUri, content);
+            var body = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                return StatusCode((int)response.StatusCode, body);
+            }
+
+            var loginResponse = JsonConvert.DeserializeObject<NTLoginResponse>(body);
+
+            if (loginResponse == null || string.IsNullOrWhiteSpace(loginResponse.AccessToken))
+            {
+                return StatusCode(
+                    StatusCodes.Status502BadGateway,
+                    "Invalid login response from Auth API");
+            }
+
+            return Ok(new
+            {
+                accessToken = loginResponse.AccessToken,
+                tokenType = "Bearer",
+                expiresAtUtc = loginResponse.ExpiresAtUtc,
+                user = new
+                {
+                    id = loginResponse.UserId,
+                    userName = loginResponse.UserName,
+                    roles = loginResponse.Roles,
+                    permissions = loginResponse.Permissions
+                }
+            });
+        }
+
+
+        [HttpPost("register-test")]
+        public async Task<IActionResult> NTRegisterTest([FromBody] NTRegisterTestRequest request)
+        {
+            using var client = _httpClientFactory.CreateClient("TestAPIGateway");
+
+            try
+            {
+                // ===============================
+                // Auth API register endpoint
+                // ===============================
+                var requestUri = "/api/orchestration/api/ntauth/register";
+
+                var registerPayload = new
+                {
+                    userName = request.UserName, // 의미: Email
+                    password = request.Password
+                };
+
+                var json = JsonConvert.SerializeObject(registerPayload);
+                var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+                // ===============================
+                // Call Auth API
+                // ===============================
+                using var response = await client.PostAsync(requestUri, content);
+                var responseBody = await response.Content.ReadAsStringAsync();
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogWarning(
+                        "NTRegisterTest failed. StatusCode={StatusCode}, Body={Body}",
+                        response.StatusCode,
+                        responseBody);
+
+                    return StatusCode((int)response.StatusCode, responseBody);
+                }
+
+                _logger.LogInformation(
+                    "NTRegisterTest success for UserName={UserName}",
+                    request.UserName);
+
+                return Ok("Register test succeeded.");
+            }
+            catch (HttpRequestException ex)
+            {
+                _logger.LogError(ex, "HTTP request failed during NTRegisterTest");
+                return StatusCode(502, "Auth API communication failed");
+            }
+            catch (TaskCanceledException ex)
+            {
+                _logger.LogError(ex, "Timeout occurred during NTRegisterTest");
+                return StatusCode(408, "Auth API request timeout");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error during NTRegisterTest");
+                return StatusCode(500, "Internal server error");
+            }
+        }
     }
 }
